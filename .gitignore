@@ -1,0 +1,30 @@
+# Secrets
+.env
+*.key
+*.pem
+
+# Local knowledge bases and uploaded documents
+knowledge_base*.json
+*.pdf
+*.docx
+*.pptx
+*.xlsx
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Evaluation outputs / caches
+.deepeval/
+eval_kbs/
+nano_eval_work/
+*_report.json
+*_results.json
+*_cases.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
