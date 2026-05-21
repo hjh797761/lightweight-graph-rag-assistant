@@ -2,6 +2,8 @@
 
 一个面向长文档复习问答的轻量 Graph RAG 原型。系统目标不是替代大模型，而是在用户上传 PDF / Word / 文本资料后，尽量从原文中找全证据，再把可追溯的上下文交给 LLM 生成回答。
 
+![Graph RAG 系统总览](docs/assets/system-overview.svg)
+
 ## 项目定位
 
 这个项目最初的定位是“复习助手”：帮助学生把课件、教材、论文、白皮书等资料变成可提问的知识库。后续测试发现，它在财报、行业报告这类长文档上也有不错表现，尤其适合需要同时命中表格数字、主体、变动原因和跨页证据的问题。
@@ -17,7 +19,23 @@
 
 ## 核心思路
 
-系统采用 v2 流程：
+系统采用 v2 流程。直观地说，它先把长文档拆成可检索的证据块，再同时建立语义索引、主题索引和概念关系索引；查询时不是只跑一次 embedding，而是多路召回后再统一重排。
+
+### 建库流程
+
+![建库流程](docs/assets/index-build.svg)
+
+建库阶段会生成三类核心索引：
+
+- `chunks_index`：保存 chunk 文本、页码、embedding、章节和概念，是检索的基础单位。
+- `topic_index`：用 chunk embedding 做语义主题簇，不依赖原文目录，帮助查询时缩小范围。
+- `knowledge_graph`：保存概念、chunk、概念共现边权，用于图扩展召回和可解释展示。
+
+### 查询流程
+
+![多路召回与重排](docs/assets/retrieval-rerank.svg)
+
+完整流程可以概括为：
 
 ```text
 文档上传
@@ -38,6 +56,26 @@
 - `exact evidence guard`：对数字、金额、同比、主体、原因说明等强证据做保底。
 - `adjacent chunk bridge`：当表格和原因说明分散在相邻 chunk 时，自动补桥。
 - `dynamic top-k`：根据问题复杂度动态决定给 LLM 的证据数量。
+
+### 评测闭环
+
+![评测闭环](docs/assets/evaluation-loop.svg)
+
+最终评测采用三方对比，而不是只看一个自动分数：
+
+| 系统 | 作用 |
+| --- | --- |
+| NaiveRAG | 普通检索增强问答 baseline |
+| Original GraphRAG | 冻结稳定版，防止越改越差 |
+| Experimental GraphRAG | 实验优化版，只在明确更稳时合并 |
+
+人工核查时重点看：
+
+- 是否命中关键证据。
+- 是否漏掉主体、数字、原因或限定条件。
+- 是否产生资料外幻觉。
+- 是否能跨页、跨章节整合。
+- 回答是否能追溯到原文 chunk。
 
 ## 目录
 
@@ -110,6 +148,26 @@ python graphrag_assistant.py
 
 ```bash
 set KB_PATH=./data/my_knowledge_base.json
+```
+
+一次典型使用流程：
+
+```text
+上传资料 → 自动建库 → 输入问题 → 查看检索路径与概念关系 → 获得基于证据的回答
+```
+
+回答时会显示类似下面的信息，便于检查答案来源：
+
+```text
+【检索路径】
+embedding_graph召回-top-52 -> 选出-top-9
+
+【概念关系】
+氦气 -> ISO
+财务费用 -> 利息收入
+
+【回答】
+先给直接结论，再说明对应资料依据。
 ```
 
 ## 钉钉 / OpenClaw 接入

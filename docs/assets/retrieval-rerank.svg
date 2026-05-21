@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="610" viewBox="0 0 1100 610" role="img" aria-label="Multi route retrieval and rerank">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#334155"/>
+    </marker>
+    <style>
+      .title { font: 700 27px "Segoe UI", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .sub { font: 400 14px "Segoe UI", "Microsoft YaHei", sans-serif; fill: #475569; }
+      .box { fill: #ffffff; stroke: #d7e0ea; stroke-width: 1.3; }
+      .route { font: 700 16px "Segoe UI", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .txt { font: 400 13px "Segoe UI", "Microsoft YaHei", sans-serif; fill: #475569; }
+      .arrow { stroke: #334155; stroke-width: 2.4; fill: none; marker-end: url(#arrow); }
+      .formula { font: 700 16px "Consolas", "Microsoft YaHei", monospace; fill: #0f172a; }
+    </style>
+  </defs>
+  <rect width="1100" height="610" rx="26" fill="#f8fafc"/>
+  <text x="48" y="58" class="title">查询阶段：五路召回，再融合排序</text>
+  <text x="50" y="86" class="sub">普通 RAG 通常只有一条向量召回；这里会把语义、主题、图谱、关键词和强证据一起纳入候选。</text>
+
+  <rect x="58" y="245" width="170" height="90" rx="14" fill="#e0f2fe" stroke="#7dd3fc"/>
+  <text x="91" y="280" class="route">用户问题</text>
+  <text x="83" y="308" class="txt">例如：解释财务费用增长原因</text>
+
+  <g transform="translate(300,120)">
+    <rect width="230" height="62" rx="12" class="box"/>
+    <text x="22" y="27" class="route">1. embedding 召回</text>
+    <text x="22" y="49" class="txt">先找语义最接近的 chunk</text>
+  </g>
+  <g transform="translate(300,205)">
+    <rect width="230" height="62" rx="12" class="box"/>
+    <text x="22" y="27" class="route">2. topic routing</text>
+    <text x="22" y="49" class="txt">优先同主题簇内候选</text>
+  </g>
+  <g transform="translate(300,290)">
+    <rect width="230" height="62" rx="12" class="box"/>
+    <text x="22" y="27" class="route">3. concept graph</text>
+    <text x="22" y="49" class="txt">从概念关系补相关 chunk</text>
+  </g>
+  <g transform="translate(300,375)">
+    <rect width="230" height="62" rx="12" class="box"/>
+    <text x="22" y="27" class="route">4. expanded query</text>
+    <text x="22" y="49" class="txt">用高置信概念扩展问题</text>
+  </g>
+  <g transform="translate(300,460)">
+    <rect width="230" height="62" rx="12" class="box"/>
+    <text x="22" y="27" class="route">5. evidence guard</text>
+    <text x="22" y="49" class="txt">数字、金额、原因说明保底</text>
+  </g>
+
+  <rect x="650" y="185" width="330" height="245" rx="16" fill="#ffffff" stroke="#d7e0ea" stroke-width="1.4"/>
+  <text x="690" y="225" class="route">融合排序</text>
+  <text x="690" y="266" class="formula">score = 0.70 * embedding</text>
+  <text x="747" y="294" class="formula">+ 0.25 * graph</text>
+  <text x="747" y="322" class="formula">+ 0.05 * keyword</text>
+  <text x="690" y="365" class="txt">再叠加 topic 权重、exact evidence floor</text>
+  <text x="690" y="392" class="txt">最后用 cross-encoder 精排候选</text>
+
+  <rect x="650" y="475" width="330" height="72" rx="16" fill="#ecfdf5" stroke="#bbf7d0"/>
+  <text x="690" y="505" class="route">dynamic top-k</text>
+  <text x="690" y="530" class="txt">按问题复杂度决定最终送给 LLM 的证据数量</text>
+
+  <path d="M230 290 C250 180, 270 150, 292 150" class="arrow"/>
+  <path d="M230 290 C250 230, 270 235, 292 235" class="arrow"/>
+  <path d="M230 290 C250 290, 270 320, 292 320" class="arrow"/>
+  <path d="M230 290 C250 385, 270 405, 292 405" class="arrow"/>
+  <path d="M230 290 C250 480, 270 490, 292 490" class="arrow"/>
+  <path d="M535 150 C600 190, 610 230, 642 268" class="arrow"/>
+  <path d="M535 490 C604 450, 612 405, 642 360" class="arrow"/>
+  <path d="M815 432 L815 468" class="arrow"/>
+</svg>

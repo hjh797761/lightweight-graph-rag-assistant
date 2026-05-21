@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="520" viewBox="0 0 1100 520" role="img" aria-label="Graph RAG system overview">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f8fbff"/>
+      <stop offset="100%" stop-color="#eef6f2"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#316b83"/>
+    </marker>
+    <style>
+      .title { font: 700 28px "Segoe UI", "Microsoft YaHei", sans-serif; fill: #102a43; }
+      .sub { font: 400 15px "Segoe UI", "Microsoft YaHei", sans-serif; fill: #486581; }
+      .box-title { font: 700 18px "Segoe UI", "Microsoft YaHei", sans-serif; fill: #102a43; }
+      .box-text { font: 400 13px "Segoe UI", "Microsoft YaHei", sans-serif; fill: #486581; }
+      .chip { font: 700 13px "Segoe UI", "Microsoft YaHei", sans-serif; fill: #0f5132; }
+      .line { stroke: #316b83; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+      .soft { fill: #ffffff; stroke: #d9e8ef; stroke-width: 1.3; filter: url(#shadow); }
+    </style>
+  </defs>
+  <rect width="1100" height="520" rx="28" fill="url(#bg)"/>
+  <text x="48" y="58" class="title">Graph RAG 复习助手：从资料到可追溯回答</text>
+  <text x="50" y="86" class="sub">核心思想：不让大模型凭记忆回答，而是先找证据，再把证据交给 LLM。</text>
+
+  <rect x="55" y="145" width="210" height="210" rx="14" class="soft"/>
+  <text x="92" y="185" class="box-title">上传资料</text>
+  <text x="92" y="220" class="box-text">PDF / Word / TXT</text>
+  <text x="92" y="248" class="box-text">课件、论文、财报、白皮书</text>
+  <rect x="92" y="282" width="116" height="34" rx="17" fill="#e8f3ff"/>
+  <text x="115" y="304" class="chip" fill="#155e75">原始文档</text>
+
+  <rect x="335" y="115" width="250" height="270" rx="14" class="soft"/>
+  <text x="373" y="155" class="box-title">离线建库</text>
+  <text x="373" y="192" class="box-text">1. chunk 切分与 overlap</text>
+  <text x="373" y="222" class="box-text">2. chunk embedding</text>
+  <text x="373" y="252" class="box-text">3. 语义 topic 聚类</text>
+  <text x="373" y="282" class="box-text">4. 概念抽取与归一化</text>
+  <text x="373" y="312" class="box-text">5. topic / concept / graph 索引</text>
+
+  <rect x="658" y="115" width="250" height="270" rx="14" class="soft"/>
+  <text x="696" y="155" class="box-title">在线查询</text>
+  <text x="696" y="192" class="box-text">问题 embedding 召回</text>
+  <text x="696" y="222" class="box-text">topic routing 缩小范围</text>
+  <text x="696" y="252" class="box-text">concept graph 补证据</text>
+  <text x="696" y="282" class="box-text">rerank + dynamic top-k</text>
+  <text x="696" y="312" class="box-text">只把证据交给 LLM</text>
+
+  <rect x="940" y="145" width="110" height="210" rx="14" class="soft"/>
+  <text x="965" y="185" class="box-title">回答</text>
+  <text x="966" y="220" class="box-text">结论</text>
+  <text x="966" y="248" class="box-text">依据</text>
+  <text x="966" y="276" class="box-text">路径</text>
+
+  <path d="M270 250 C292 250, 305 250, 327 250" class="line"/>
+  <path d="M592 250 C616 250, 626 250, 650 250" class="line"/>
+  <path d="M914 250 C925 250, 926 250, 936 250" class="line"/>
+
+  <rect x="338" y="420" width="480" height="46" rx="23" fill="#eaf7ef" stroke="#b7dfc4"/>
+  <text x="366" y="449" class="sub">关键优势：轻量、可本地运行、不依赖图数据库、证据路径可检查</text>
+</svg>

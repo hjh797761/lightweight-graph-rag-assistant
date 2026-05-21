@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="560" viewBox="0 0 1100 560" role="img" aria-label="Index build pipeline">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#475569"/>
+    </marker>
+    <style>
+      .title { font: 700 27px "Segoe UI", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .sub { font: 400 14px "Segoe UI", "Microsoft YaHei", sans-serif; fill: #475569; }
+      .box { fill: #fff; stroke: #dbe4ee; stroke-width: 1.4; }
+      .head { font: 700 17px "Segoe UI", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .txt { font: 400 13px "Segoe UI", "Microsoft YaHei", sans-serif; fill: #475569; }
+      .num { font: 700 16px "Segoe UI", sans-serif; fill: #fff; }
+      .arrow { stroke: #475569; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect width="1100" height="560" rx="26" fill="#f8fafc"/>
+  <text x="48" y="58" class="title">建库阶段：把长文档变成三类可检索索引</text>
+  <text x="50" y="85" class="sub">这里是离线成本，目标是让后续查询既能按语义找，也能按概念关系补证据。</text>
+
+  <g transform="translate(60,135)">
+    <rect width="180" height="150" rx="14" class="box"/>
+    <circle cx="30" cy="30" r="17" fill="#2563eb"/><text x="25" y="36" class="num">1</text>
+    <text x="60" y="35" class="head">文档解析</text>
+    <text x="30" y="76" class="txt">读取 PDF / Word / TXT</text>
+    <text x="30" y="103" class="txt">抽取正文与页码</text>
+  </g>
+
+  <g transform="translate(290,135)">
+    <rect width="180" height="150" rx="14" class="box"/>
+    <circle cx="30" cy="30" r="17" fill="#0891b2"/><text x="25" y="36" class="num">2</text>
+    <text x="60" y="35" class="head">chunk 切分</text>
+    <text x="30" y="76" class="txt">保留段落边界</text>
+    <text x="30" y="103" class="txt">overlap 防止截断</text>
+  </g>
+
+  <g transform="translate(520,135)">
+    <rect width="180" height="150" rx="14" class="box"/>
+    <circle cx="30" cy="30" r="17" fill="#059669"/><text x="25" y="36" class="num">3</text>
+    <text x="60" y="35" class="head">embedding</text>
+    <text x="30" y="76" class="txt">每个 chunk 向量化</text>
+    <text x="30" y="103" class="txt">支持语义相似召回</text>
+  </g>
+
+  <g transform="translate(750,135)">
+    <rect width="280" height="150" rx="14" class="box"/>
+    <circle cx="30" cy="30" r="17" fill="#7c3aed"/><text x="25" y="36" class="num">4</text>
+    <text x="60" y="35" class="head">主题簇与概念图谱</text>
+    <text x="30" y="76" class="txt">语义相近 chunk 聚成 topic</text>
+    <text x="30" y="103" class="txt">概念 - chunk - 共现关系建图</text>
+  </g>
+
+  <path d="M245 210 L282 210" class="arrow"/>
+  <path d="M475 210 L512 210" class="arrow"/>
+  <path d="M705 210 L742 210" class="arrow"/>
+
+  <rect x="105" y="365" width="250" height="105" rx="14" fill="#eff6ff" stroke="#bfdbfe"/>
+  <text x="135" y="400" class="head">chunks_index</text>
+  <text x="135" y="432" class="txt">保存 chunk 文本、embedding、页码、概念</text>
+
+  <rect x="425" y="365" width="250" height="105" rx="14" fill="#ecfdf5" stroke="#bbf7d0"/>
+  <text x="455" y="400" class="head">topic_index</text>
+  <text x="455" y="432" class="txt">保存主题簇、中心向量、topic 内 chunk</text>
+
+  <rect x="745" y="365" width="250" height="105" rx="14" fill="#f5f3ff" stroke="#ddd6fe"/>
+  <text x="775" y="400" class="head">knowledge_graph</text>
+  <text x="775" y="432" class="txt">保存概念共现边权与相关 chunk</text>
+</svg>
