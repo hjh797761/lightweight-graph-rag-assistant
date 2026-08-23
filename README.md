@@ -1,210 +1,148 @@
-# Graph RAG 复习助手
+# Lightweight Graph RAG Assistant
 
-一个面向长文档复习问答的轻量 Graph RAG 原型。系统目标不是替代大模型，而是在用户上传 PDF / Word / 文本资料后，尽量从原文中找全证据，再把可追溯的上下文交给 LLM 生成回答。
+一个面向中文 PDF、DOCX、Markdown 和纯文本资料的 CPU-first Graph RAG 原型。项目把文档切块、批量生成向量、构建概念共现图和主题索引，并通过统一检索管线生成带 `[S1]`、`[S2]` 来源编号的上下文。
 
-![Graph RAG 系统总览](docs/assets/system-overview.svg)
+本项目适合本地学习、原型验证和检索消融实验。它不是已经完成生产加固的托管服务。
 
-## 项目定位
+## 主要变化
 
-这个项目最初的定位是“复习助手”：帮助学生把课件、教材、论文、白皮书等资料变成可提问的知识库。后续测试发现，它在财报、行业报告这类长文档上也有不错表现，尤其适合需要同时命中表格数字、主体、变动原因和跨页证据的问题。
-
-相比更重的 GraphRAG 路线，本项目刻意选择轻量化实现：
-
-- 不依赖图数据库。
-- 不生成社区摘要。
-- 不强依赖文档目录或章节树。
-- 以 `chunk embedding + topic_index + concept graph + evidence guard` 为主流程。
-
-在同一份财报文档上，nano-GraphRAG 完整建图曾耗时约 40 多分钟；本项目没有社区检测和社区报告生成，建库流程更快，更适合课程项目、个人知识库和本地复习助手场景。
-
-## 核心思路
-
-系统采用 v2 流程。直观地说，它先把长文档拆成可检索的证据块，再同时建立语义索引、主题索引和概念关系索引；查询时不是只跑一次 embedding，而是多路召回后再统一重排。
-
-### 建库流程
-
-![建库流程](docs/assets/index-build.svg)
-
-建库阶段会生成三类核心索引：
-
-- `chunks_index`：保存 chunk 文本、页码、embedding、章节和概念，是检索的基础单位。
-- `topic_index`：用 chunk embedding 做语义主题簇，不依赖原文目录，帮助查询时缩小范围。
-- `knowledge_graph`：保存概念、chunk、概念共现边权，用于图扩展召回和可解释展示。
-
-### 查询流程
-
-![多路召回与重排](docs/assets/retrieval-rerank.svg)
-
-完整流程可以概括为：
-
-```text
-文档上传
-→ chunk 切分
-→ chunk embedding
-→ 语义 topic 聚类
-→ 概念抽取与 concept graph
-→ 多路召回
-→ rerank 融合排序
-→ dynamic top-k
-→ LLM 基于证据回答
-```
-
-与普通 RAG 相比，本项目额外做了几件事：
-
-- `topic_index`：把语义相近的 chunk 归入主题簇，查询时缩小语义范围。
-- `knowledge_graph`：记录概念、chunk、概念共现关系，用于图扩展召回。
-- `exact evidence guard`：对数字、金额、同比、主体、原因说明等强证据做保底。
-- `adjacent chunk bridge`：当表格和原因说明分散在相邻 chunk 时，自动补桥。
-- `dynamic top-k`：根据问题复杂度动态决定给 LLM 的证据数量。
-
-### 评测闭环
-
-![评测闭环](docs/assets/evaluation-loop.svg)
-
-最终评测采用三方对比，而不是只看一个自动分数：
-
-| 系统 | 作用 |
-| --- | --- |
-| NaiveRAG | 普通检索增强问答 baseline |
-| Original GraphRAG | 冻结稳定版，防止越改越差 |
-| Experimental GraphRAG | 实验优化版，只在明确更稳时合并 |
-
-人工核查时重点看：
-
-- 是否命中关键证据。
-- 是否漏掉主体、数字、原因或限定条件。
-- 是否产生资料外幻觉。
-- 是否能跨页、跨章节整合。
-- 回答是否能追溯到原文 chunk。
-
-## 目录
-
-```text
-.
-├── graphrag_assistant.py          # 核心命令行 RAG 程序
-├── dingtalk_server.py             # 钉钉 / OpenClaw 接入示例
-├── requirements.txt               # 依赖
-├── .env.example                   # 环境变量示例
-├── scripts/
-│   └── two_doc_retrieval_eval.py  # 检索证据命中评测脚本
-└── docs/
-    ├── V2_FOCUSED_EVAL_SUMMARY.md
-    ├── DEEPEVAL_TWO_DOC_FOCUSED_SUMMARY.md
-    └── EXTERNAL_BASELINE_NANO_SUMMARY.md
-```
+- 使用 SQLite 存储文档、处理进度、chunk、`float32` embedding、概念边和 topic。
+- 一个批次的 chunk、概念和进度在同一事务中提交，失败时整批回滚。
+- embedding 按批编码；检索使用缓存的连续 NumPy 矩阵，而不是逐条 Python 扫描。
+- 五种检索 profile 共用同一数据、文档范围、候选预算和输出格式。
+- 生产提示和评测器不包含针对私有题目的答案特例。
+- 测试与公开评测默认可使用确定性 CPU 后端，不下载模型、不调用 API。
 
 ## 安装
 
-建议使用 Python 3.10+。
+需要 Python 3.10 或更高版本。CPU 环境可直接运行：
 
-```bash
+```powershell
+git clone https://github.com/hjh797761/lightweight-graph-rag-assistant.git
+cd lightweight-graph-rag-assistant
 python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
+.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env
 ```
 
-首次运行会下载 embedding / reranker 模型，默认使用：
+首次实际建库或检索时，默认会从 Hugging Face 下载以下模型并缓存：
 
 - `BAAI/bge-small-zh-v1.5`
-- `BAAI/bge-reranker-base`
+- `BAAI/bge-reranker-base`（当 `ENABLE_CROSS_ENCODER=1`）
+
+如果不需要 cross-encoder，可在 `.env` 设置 `ENABLE_CROSS_ENCODER=0`，减少首次下载和 CPU 推理开销。
+
+### 离线模式
+
+联网机器可提前下载模型：
+
+```powershell
+python -c "from sentence_transformers import SentenceTransformer, CrossEncoder; SentenceTransformer('BAAI/bge-small-zh-v1.5'); CrossEncoder('BAAI/bge-reranker-base')"
+```
+
+随后在 `.env` 设置：
+
+```dotenv
+OFFLINE_MODE=1
+```
+
+离线模式只读取本机缓存；缓存缺失时会抛出明确的 `ModelUnavailableError`，不会静默联网。
 
 ## 配置
 
-复制环境变量模板：
+常用环境变量见 [.env.example](.env.example)：
 
-```bash
-copy .env.example .env
+```dotenv
+KB_PATH=knowledge_base.json
+OFFLINE_MODE=0
+BUILD_BATCH_SIZE=20
+EMBEDDING_BACKEND=sentence_transformer
+EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5
+ENABLE_CROSS_ENCODER=1
+CROSS_ENCODER_MODEL=BAAI/bge-reranker-base
+VECTOR_RECALL_K=40
+FINAL_TOP_K=6
+MOONSHOT_API_KEY=
+MOONSHOT_BASE_URL=https://api.moonshot.cn/v1
+MOONSHOT_MODEL=moonshot-v1-8k
 ```
 
-至少需要设置：
+`.env` 会先加载，进程环境变量具有更高优先级。`EMBEDDING_BACKEND=moonshot` 仍受支持，并通过 OpenAI 兼容 embeddings API 批量请求向量。
 
-```bash
-set MOONSHOT_API_KEY=你的_key
-```
+## 运行
 
-如果使用钉钉 / OpenClaw 接入，还需要设置：
+启动兼容的交互菜单：
 
-```bash
-set DINGTALK_WEBHOOK=你的钉钉机器人 webhook
-```
-
-不要把 `.env`、API key、webhook token 提交到 GitHub。
-
-## 命令行使用
-
-```bash
+```powershell
 python graphrag_assistant.py
 ```
 
-菜单中：
+菜单保留上传资料、提问、查看知识结构、查看文档列表、备份并清空和退出操作。回答生成需要有效的 Moonshot/Kimi 配置；建库和检索本身可使用本地模型。
 
-- `1` 上传资料并建库
-- `2` 提问
-- `3` 查看知识结构
-- `4` 查看文档列表
-- `9` 备份并清空知识库
+旧 Python 入口仍可导入：
 
-默认知识库文件是 `knowledge_base.json`。可用环境变量指定：
-
-```bash
-set KB_PATH=./data/my_knowledge_base.json
+```python
+from graphrag_assistant import (
+    add_document_to_tree,
+    generate_answer,
+    load_knowledge_base,
+    retrieve,
+    retrieve_semantic,
+)
 ```
 
-一次典型使用流程：
+`dingtalk_server.py` 继续通过这些入口工作，启动方式为：
 
-```text
-上传资料 → 自动建库 → 输入问题 → 查看检索路径与概念关系 → 获得基于证据的回答
-```
-
-回答时会显示类似下面的信息，便于检查答案来源：
-
-```text
-【检索路径】
-embedding_graph召回-top-52 -> 选出-top-9
-
-【概念关系】
-氦气 -> ISO
-财务费用 -> 利息收入
-
-【回答】
-先给直接结论，再说明对应资料依据。
-```
-
-## 钉钉 / OpenClaw 接入
-
-```bash
+```powershell
 python dingtalk_server.py
 ```
 
-服务默认监听 `0.0.0.0:5000`，可配合 ngrok / OpenClaw 把钉钉消息转发到 `/dingtalk`。
+## 存储与旧数据迁移
 
-## 评测说明
+当 `KB_PATH=knowledge_base.json` 时，实际新库路径为同目录下的 `knowledge_base.sqlite3`。如果 SQLite 不存在而旧 JSON 存在，首次加载会：
 
-本项目的评测不只看大模型回答流畅度，而是分三层：
+1. 在同目录构建临时 SQLite；
+2. 迁移并核对 chunk 数量；
+3. 成功后原子切换为正式 SQLite；
+4. 始终保留原 `knowledge_base.json`。
 
-1. 检索证据命中：上下文是否包含人工标注的关键证据点。
-2. DeepEval 辅助评估：Answer Relevancy 和 Faithfulness。
-3. 人工核查：主体、数字、原因、跨页整合、幻觉、可追溯性。
+迁移失败不会覆盖原 JSON 或已有正式数据库。菜单中的“清空”仍要求输入 `RESET`，并在清空前生成 SQLite 备份。
 
-已整理的实验摘要见 `docs/`。
+## 公开评测
 
-更详细的流程说明见：
+仓库包含两份原创合成资料和问题集。无需模型下载的可复现烟测：
 
-- [系统设计说明](docs/system_design.md)
-- [评测说明](docs/evaluation.md)
+```powershell
+python scripts/retrieval_eval.py --embedding-backend deterministic --out-json .tmp/eval.json --out-md .tmp/eval.md
+```
 
-仓库提供了一个极小样例 [examples/sample.txt](examples/sample.txt)，用于快速验证上传、建库和问答流程。
+使用真实 embedding 模型：
 
-## 开源注意
+```powershell
+python scripts/retrieval_eval.py --embedding-backend model --out-json .tmp/eval-model.json --out-md .tmp/eval-model.md
+```
 
-仓库不应包含：
+报告同时运行 `vector`、`vector_keyword`、`vector_graph`、`vector_topic_graph` 和 `full`。各 profile 使用同一个问题限定文档和 `top_k`，输出关键证据覆盖、倒数排名、命中片段、分数和检索耗时。指标只用于报告，不设自动质量阈值。
 
-- API key、webhook、access token
-- 个人文档、课程资料、商业 PDF 原文
-- `knowledge_base*.json` 等本地知识库
-- 大量评测中间产物和缓存
-- `.deepeval/`、`__pycache__/`、模型缓存
+非门禁 CPU 基准：
+
+```powershell
+python scripts/cpu_benchmark.py
+```
+
+## 测试
+
+```powershell
+python -m pip install -r requirements-dev.txt
+python -m pytest -v
+python -m compileall -q graphrag graphrag_assistant.py dingtalk_server.py scripts tests
+```
+
+GitHub Actions 在 Windows 和 Ubuntu、Python 3.10 与 3.12 上运行测试、语法检查和确定性公开评测。
+
+更多细节见 [系统设计](docs/system_design.md) 和 [评测说明](docs/evaluation.md)。
 
 ## License
 
-建议按课程项目用途选择 MIT License；如果文档数据包含第三方版权材料，请不要把原文资料一起开源。
+[MIT](LICENSE)

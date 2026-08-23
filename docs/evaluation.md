@@ -1,82 +1,55 @@
-# 评测说明
+# 可复现评测说明
 
-本项目评测不只看回答是否流畅，而是重点检查 RAG 是否找到了正确证据。
+## 1. 目标
 
-## 1. 对比系统
+当前评测回答的是“不同检索组件在同一管线中是否找到了所需证据”。它不把语言流畅度混入检索对比，也不把普通 RAG 的未限定检索和 Graph RAG 的限定检索放在一起比较。
 
-实验中比较三类系统：
+## 2. 公开材料
 
-- `NaiveRAG`：普通向量检索 + LLM 回答。
-- `FrozenGraphRAG`：早期冻结版本，用作强一点的内部 baseline。
-- `V2GraphRAG`：当前展示版本，包含 topic、concept graph、exact guard、bridge、dynamic top-k。
+`examples/` 包含两份原创合成文档：
 
-## 2. 测试材料
+- 技术笔记：温度传感器、控制器和冷却流程之间的跨句关系。
+- 财务风格笔记：本期数、上期数、同比变化和原因。
 
-测试材料覆盖两类文档：
+问题及证据点位于 `examples/eval_questions.json`。所有路径均相对仓库，不依赖作者电脑、私有 PDF、冻结知识库或仓库外的 `main.py`。
 
-- 人工智能行业白皮书：适合测试主题链、跨章节概念、技术路线整合。
-- 贵州茅台年度报告：适合测试表格、数字、主体、原因说明、相邻 chunk 补桥。
+## 3. 公平比较
 
-开源仓库不附带这些原始 PDF，避免版权和文件体积问题。
+`scripts/retrieval_eval.py` 对每道题依次运行五种 `RetrievalProfile`。同一道题的 profile 共用：
 
-## 3. 指标
+- 同一 SQLite 数据与 chunk；
+- 同一 embedding 后端；
+- 同一文档限定；
+- 同一 `top_k` 证据预算；
+- 同一指标和报告格式。
 
-### 3.1 检索证据命中
+profile 只改变其名称声明的组件。
 
-人工为每题标注关键证据点，检查系统召回上下文是否包含这些证据。
+## 4. 指标
 
-这个指标不评价语言，只回答一个问题：
+- `evidence_recall`：期望证据点中有多少出现在召回上下文。
+- `reciprocal_rank`：首个包含任一期望证据的 chunk 的倒数排名。
+- `selected_chunks` 与 `scores`：便于逐题审计排序。
+- `retrieval_seconds`：单次检索墙钟时间，仅用于观察，不设置性能门禁。
 
-```text
-RAG 有没有把正确资料找出来？
+匹配前只使用通用归一化，不为某个金额、专名或预期答案添加特殊候选。
+
+## 5. 运行
+
+无需网络、模型或 API：
+
+```powershell
+python scripts/retrieval_eval.py --embedding-backend deterministic --out-json .tmp/eval.json --out-md .tmp/eval.md
 ```
 
-### 3.2 DeepEval Answer Relevancy
+真实本地模型：
 
-衡量回答是否切题。它关注答案和问题的相关程度。
+```powershell
+python scripts/retrieval_eval.py --embedding-backend model --out-json .tmp/eval-model.json --out-md .tmp/eval-model.md
+```
 
-### 3.3 DeepEval Faithfulness
+可通过 `--questions` 和重复的 `--document` 参数传入自己的材料。报告会记录 embedding backend，确定性烟测结果不能冒充真实模型质量。
 
-衡量答案是否忠实于给定上下文。它关注回答是否有上下文支撑。
+## 6. 历史结果说明
 
-中文长文本评测时，judge LLM 偶尔会输出 invalid JSON，因此 DeepEval 结果只作为辅助，不替代人工核查。
-
-### 3.4 人工核查
-
-人工核查重点包括：
-
-- 是否命中关键证据。
-- 是否漏掉主体、数字、原因。
-- 是否出现幻觉。
-- 是否能跨页或跨章节整合。
-- 回答是否可追溯。
-
-## 4. 摘要结果
-
-Focused 题集检索证据命中：
-
-| 文档 | NaiveRAG | FrozenGraphRAG | V2GraphRAG |
-| --- | ---: | ---: | ---: |
-| 人工智能白皮书 | 40/46 | 42/46 | 43/46 |
-| 贵州茅台年报 | 31/46 | 41/46 | 44/46 |
-
-DeepEval 六题辅助评估：
-
-| 系统 | Answer Relevancy | Faithfulness |
-| --- | ---: | ---: |
-| NaiveRAG | 0.881 | 0.938* |
-| FrozenGraphRAG | 1.000 | 0.887* |
-| V2GraphRAG | 0.957 | 0.983* |
-
-`*` 表示只统计有效样本，部分 Faithfulness 样本因 judge 输出 invalid JSON 未计入。
-
-## 5. 结论
-
-V2GraphRAG 的优势主要体现在复杂问题：
-
-- 表格和文字说明分散在相邻 chunk。
-- 问题需要同时回答主体、数字和原因。
-- 问题跨主题链或跨章节。
-- 需要展示检索路径和概念关系。
-
-对于单点事实题，普通 RAG 已经足够强，v2 优势不会特别明显。
+早期仓库文档中的数字来自未公开资料、不同检索范围或无法由当前仓库重建的脚本，因此只属于历史、不可复现快照，不再作为当前版本的性能证据。当前项目不预填“新版优于基线”的结论；请运行公开脚本并检查逐题证据后再形成判断。

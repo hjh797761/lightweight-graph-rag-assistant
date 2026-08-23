@@ -1,131 +1,67 @@
-# 系统设计说明
+# 系统设计
 
-本项目实现的是一个轻量 Graph RAG 复习助手。设计目标是：在长文档资料中检索可靠证据，并把可追溯上下文交给大模型回答。
+## 1. 边界与兼容层
 
-## 1. 建库阶段
+`graphrag_assistant.py` 只保留旧 Python 函数和交互菜单。真实职责位于 `graphrag/`：
 
-建库阶段是离线流程，主要生成三类索引。
+- `config.py`：加载 `.env` 和进程环境变量。
+- `ingestion.py`：读取文档、切块、批量建库。
+- `embeddings.py`：本地、OpenAI 兼容和确定性测试后端，以及 cross-encoder 精排。
+- `storage.py`：SQLite schema、事务写入和向量矩阵缓存。
+- `graph.py`：通用概念、共现边和主题聚类。
+- `retrieval.py`：统一召回、消融 profile、排序和来源上下文。
+- `answering.py`：领域无关的证据约束提示。
+- `service.py`：迁移、摄取、检索和回答编排。
 
-### 1.1 chunk 切分
+模块导入不会加载模型或访问网络。首次需要向量或精排时才懒加载对应模型。
 
-系统读取 PDF、Word 或文本文件后，将文档切分成多个 chunk。chunk 是实际检索和回答的基本单位。
+## 2. 建库数据流
 
-切分时会尽量保留段落边界，并通过 overlap 降低“答案刚好被切断”的风险。
-
-### 1.2 chunk embedding
-
-每个 chunk 会生成向量表示。默认模型：
-
-```text
-BAAI/bge-small-zh-v1.5
-```
-
-embedding 是召回入口，因为它对表达变化更稳定。即使问题和原文措辞不完全一致，也能先找到语义接近的候选片段。
-
-### 1.3 topic_index
-
-系统根据 chunk embedding 的相似度，将语义接近的 chunk 归入 topic。
-
-topic 不是人工目录，也不要求文档有真实章节。它的作用是查询时缩小语义范围，减少跨主题、跨文档误召回。
-
-### 1.4 knowledge_graph
-
-每个 chunk 会抽取少量概念。概念与 chunk 建立连接；同一 chunk 内共同出现的概念形成共现关系。
-
-图谱主要服务两个目标：
-
-- 图扩展召回：从命中的概念找到相关 chunk。
-- 可解释展示：展示回答依赖了哪些概念关系。
-
-## 2. 查询阶段
-
-查询阶段不是只跑一次向量检索，而是多路召回。
-
-### 2.1 原问题 embedding 召回
-
-先用用户问题生成 embedding，在全库中取语义相似 chunk。
-
-这一路保证基础相关性。
-
-### 2.2 topic routing
-
-系统判断问题最接近哪些 topic，并在这些 topic 内增强召回。
-
-topic 不会完全屏蔽全局结果，只是给同主题候选加权，避免过度限制。
-
-### 2.3 concept graph 召回
-
-系统从问题中抽取查询概念，去 knowledge_graph 中寻找相关概念和 chunk。
-
-这一路用于补充普通 embedding 不容易发现的关系型证据。
-
-### 2.4 expanded query 召回
-
-系统会把高置信概念拼入查询，再做一次向量召回，用来补充同义表达或上下文表达不同的片段。
-
-### 2.5 exact evidence guard
-
-对于数字、金额、同比、主体、原因说明等强证据，系统会做额外保底。
-
-这一步用于解决“语义相关但证据不完整”的问题。
-
-### 2.6 adjacent chunk bridge
-
-如果问题需要表格和原因说明，而二者分布在相邻 chunk 中，系统会补入相邻 chunk。
-
-典型场景：
+文档先按段落和长度切成 `(clean_text, context_text)`。一个批次的净文本通过一次 `encode_many` 生成连续 `float32` 矩阵，然后构造 chunk、抽取通用概念，并在同一个 SQLite 事务中写入：
 
 ```text
-chunk_012：现金流金额表
-chunk_013：变动原因说明
+文档 -> 切块 -> 批量 embedding -> chunk + concepts + edges + progress
+                                      \____________事务____________/
 ```
 
-普通 RAG 可能只召回其中一个；bridge 规则会让两类证据一起进入上下文。
+事务边界解决的具体问题是：进程若在 chunk 已写入但进度未更新时中断，续建会重复累计概念边；若进度先更新而 chunk 未完整写入，则会跳过资料。主键或 Git 无法修复用户运行时产生的半批数据。
 
-## 3. Rerank 与 Dynamic Top-k
+最后一个批次完成后，系统按向量余弦相似度进行轻量贪心聚类，将 topic centroid 和 chunk 归属写入 SQLite。整个流程没有逐 chunk 固定休眠，也不会每处理一个 chunk 就重写整库 JSON。
 
-多路召回会带来更多候选，因此需要重新排序。
+## 3. 存储与矩阵召回
 
-基础融合分数：
+SQLite 保存 metadata、documents、chunks、chunk_concepts、concept_edges、topics 和 topic_chunks。embedding 以维度明确的 `float32` BLOB 保存。
+
+检索时，目标文档范围内的向量一次性加载为连续 NumPy 矩阵：
 
 ```text
-score = 0.70 * embedding_score
-      + 0.25 * graph_score
-      + 0.05 * keyword_score
+scores = chunk_matrix @ query_vector
 ```
 
-再叠加：
+矩阵按文档范围缓存在进程内。成功写入后缓存失效；事务失败时数据和缓存状态都不前进。
 
-- topic rerank
-- exact evidence floor
-- cross-encoder 精排
+## 4. 同管线检索 profile
 
-最后根据问题复杂度动态选择 top-k：
+所有 profile 都从同一个 `Retriever` 入口运行，并保持相同文档范围和最终证据预算：
 
-- 简单事实题：较少 chunk
-- 原因/比较题：中等 chunk
-- 跨页/多证据题：更多 chunk
+| Profile | 向量 | 关键词 | 图 | Topic | 精确证据 | 相邻桥接 |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| `vector` | ✓ |  |  |  |  |  |
+| `vector_keyword` | ✓ | ✓ |  |  |  |  |
+| `vector_graph` | ✓ |  | ✓ |  |  |  |
+| `vector_topic_graph` | ✓ |  | ✓ | ✓ |  |  |
+| `full` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
-dynamic top-k 决定最终送给 LLM 的证据数量。
+若默认服务启用了 cross-encoder，它在候选融合后统一精排。上下文中的每个证据块带 `[S编号]`、文档 ID 和 chunk ID。
 
-## 4. 答案生成
+## 5. 过拟合控制
 
-答案生成阶段本身不复杂。系统只把精排后的 chunk、检索路径和概念关系摘要交给 LLM。
+生产提示只要求覆盖主体、时间、指标、单位、原因和条件，不包含任何评测材料中的专名或预期答案。证据匹配只进行领域无关的 Unicode NFKC、大小写、空白、千位分隔符和标点归一化。
 
-重点是约束 LLM：
+公开评测资料独立存放在 `examples/`。测试会扫描生产模块和评测器，防止已知私有 fixture 词语重新进入逻辑。
 
-- 只能基于给定资料回答。
-- 资料不足时说明无法确认。
-- 尽量保留关键主体、数字和原因。
+## 6. 迁移与失败行为
 
-## 5. 为什么默认关闭 tree recall
+旧 JSON 迁移使用唯一临时数据库。核对成功后通过原子改名切换；原 JSON 不删除。失败时抛出带异常链的 `MigrationError`，目标库不被替换，临时库保留用于诊断。
 
-早期版本尝试过章节树，但通用材料不一定有可靠目录结构。对于白皮书、年报、课件和混合资料，强依赖章节树会带来不稳定性。
-
-最终 v2 默认使用：
-
-```text
-chunk embedding + topic_index + concept graph
-```
-
-tree recall 保留为可选实验路径，但不是主流程。
+模型在线或离线加载失败会抛出 `ModelUnavailableError`；文档解析错误抛出 `DocumentParseError`。回答 API 缺少密钥时在调用点报告，不影响离线导入测试。

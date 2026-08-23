@@ -5,6 +5,8 @@
 
 # Local knowledge bases and uploaded documents
 knowledge_base*.json
+*.sqlite3
+*.sqlite3-*
 *.pdf
 *.docx
 *.pptx
@@ -17,6 +19,7 @@ __pycache__/
 venv/
 
 # Evaluation outputs / caches
+.tmp/
 .deepeval/
 eval_kbs/
 nano_eval_work/

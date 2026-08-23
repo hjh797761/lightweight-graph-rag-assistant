@@ -1,25 +1,14 @@
 # GitHub 发布检查清单
 
-发布前请确认：
+- [ ] `python -m pytest -v` 全部通过。
+- [ ] `python -m compileall -q graphrag graphrag_assistant.py dingtalk_server.py scripts tests` 通过。
+- [ ] 确定性公开评测能够生成 JSON 和 Markdown。
+- [ ] `.env`、API Key、Webhook、个人资料、数据库和模型缓存均未暂存。
+- [ ] `git diff --check` 无格式错误。
+- [ ] `git status --short --branch` 只包含预期提交。
+- [ ] `git fetch origin` 后本地 `main` 与远端没有分叉。
+- [ ] 推送前执行 `git pull --ff-only origin main` 并重新运行测试。
+- [ ] 使用普通 `git push origin main`，不使用 force push。
+- [ ] 推送后用 `git ls-remote origin refs/heads/main` 核对远端 SHA。
 
-- [ ] 已重新生成 Moonshot / Kimi API Key，旧 key 已作废。
-- [ ] 已重新生成钉钉机器人 webhook token，旧 token 已作废。
-- [ ] 仓库中没有 `.env` 文件。
-- [ ] 仓库中没有 `knowledge_base*.json`。
-- [ ] 仓库中没有个人 PDF、课程资料、商业报告原文。
-- [ ] 仓库中没有 `.deepeval/`、`__pycache__/`、模型缓存、评测大文件。
-- [ ] 只发布 `github_release/` 目录中的内容，而不是整个工作区。
-
-推荐发布命令：
-
-```bash
-cd github_release
-git init
-git add .
-git commit -m "Initial release of lightweight Graph RAG assistant"
-git branch -M main
-git remote add origin <your-github-repo-url>
-git push -u origin main
-```
-
-如果 GitHub 推送时提示 secret scanning，请立即停止推送并重新检查密钥。
+如 GitHub secret scanning 或 CI 报告问题，应停止发布并定位原因；不要通过关闭检查或改写远端历史绕过。

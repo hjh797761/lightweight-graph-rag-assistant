@@ -45,3 +45,5 @@ def test_evaluation_runs_all_profiles_with_same_scope_and_budget(tmp_path):
         budgets = {row["top_k"] for row in question["results"]}
         assert len(scopes) == 1
         assert len(budgets) == 1
+        assert all(row["retrieval_seconds"] >= 0 for row in question["results"])
+        assert all("scores" in row for row in question["results"])

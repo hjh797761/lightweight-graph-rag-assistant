@@ -4,7 +4,13 @@ import argparse
 from dataclasses import replace
 import json
 from pathlib import Path
+import sys
 import tempfile
+import time
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from graphrag.config import AppConfig
 from graphrag.embeddings import DeterministicEmbeddingBackend, EmbeddingBackend
@@ -47,12 +53,14 @@ def evaluate(service, questions_path: Path, out_json: Path | None = None, *, bac
         scope = question["document"]
         rows = []
         for profile in PROFILES:
+            started = time.perf_counter()
             result = service.retrieve(
                 question["question"],
                 doc_scope=scope,
                 profile=profile,
                 top_k=top_k,
             )
+            retrieval_seconds = time.perf_counter() - started
             selected_texts = [chunk.clean_text for chunk in result.chunks]
             flags = evidence_flags(result.context, question["expected_evidence"])
             rows.append(
@@ -62,6 +70,8 @@ def evaluate(service, questions_path: Path, out_json: Path | None = None, *, bac
                     "doc_scope": result.requested_scope,
                     "top_k": result.requested_top_k,
                     "selected_chunks": [getattr(chunk, "id", "") for chunk in result.chunks],
+                    "scores": [float(score) for score in getattr(result, "scores", [])],
+                    "retrieval_seconds": retrieval_seconds,
                     "evidence": flags,
                     "evidence_recall": sum(flags.values()) / max(len(flags), 1),
                     "reciprocal_rank": reciprocal_rank(selected_texts, question["expected_evidence"]),
@@ -112,7 +122,7 @@ def _build_service(root: Path, backend: str, documents: list[Path], database: Pa
 
 
 def main() -> None:
-    root = Path(__file__).resolve().parents[1]
+    root = ROOT
     parser = argparse.ArgumentParser(description="Run reproducible retrieval-profile evaluation")
     parser.add_argument("--questions", type=Path, default=root / "examples" / "eval_questions.json")
     parser.add_argument("--document", type=Path, action="append")
