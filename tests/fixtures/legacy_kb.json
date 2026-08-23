@@ -1,0 +1,43 @@
+{
+  "schema_version": 3,
+  "documents": {
+    "legacy-doc": {
+      "id": "legacy-doc",
+      "name": "legacy.txt",
+      "path": "legacy.txt",
+      "chunk_ids": ["legacy-doc::chunk_000000", "legacy-doc::chunk_000001"]
+    }
+  },
+  "chunks": {
+    "legacy-doc::chunk_000000": {
+      "id": "legacy-doc::chunk_000000",
+      "doc_id": "legacy-doc",
+      "chapter": "第一节",
+      "concepts": ["温度传感器", "控制器"],
+      "clean_text": "温度传感器采集数据。",
+      "text": "温度传感器采集数据。",
+      "embedding": [1.0, 0.0]
+    },
+    "legacy-doc::chunk_000001": {
+      "id": "legacy-doc::chunk_000001",
+      "doc_id": "legacy-doc",
+      "chapter": "第二节",
+      "concepts": ["控制器", "冷却阀"],
+      "clean_text": "控制器调节冷却阀。",
+      "text": "控制器调节冷却阀。",
+      "embedding": [0.0, 1.0]
+    }
+  },
+  "knowledge_tree": {
+    "legacy-doc": {
+      "第一节": {"温度传感器": ["legacy-doc::chunk_000000"]}
+    }
+  },
+  "knowledge_graph": {
+    "温度传感器": {"控制器": 1},
+    "控制器": {"温度传感器": 1, "冷却阀": 1},
+    "冷却阀": {"控制器": 1}
+  },
+  "topic_index": {},
+  "processed_chunks": {"legacy-doc": 2}
+}
