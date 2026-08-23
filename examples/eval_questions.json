@@ -1,0 +1,16 @@
+[
+  {
+    "id": "TECH-01",
+    "document": "eval_technical_notes.txt",
+    "question": "控制器如何根据温度变化调整冷却流程？",
+    "expected_evidence": ["温度传感器", "控制器", "冷却阀"],
+    "top_k": 4
+  },
+  {
+    "id": "FIN-01",
+    "document": "eval_financial_notes.txt",
+    "question": "本期维护费用、上期金额、同比变化和原因分别是什么？",
+    "expected_evidence": ["1,250.00万元", "1,000.00万元", "25%", "设备集中检修"],
+    "top_k": 4
+  }
+]
