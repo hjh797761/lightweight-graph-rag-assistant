@@ -34,10 +34,26 @@
     }
   },
   "knowledge_graph": {
-    "温度传感器": {"控制器": 1},
-    "控制器": {"温度传感器": 1, "冷却阀": 1},
+    "温度传感器": {"控制器": 3},
+    "控制器": {"温度传感器": 3, "冷却阀": 2},
     "冷却阀": {"控制器": 1}
   },
-  "topic_index": {},
+  "topic_index": {
+    "legacy-doc": {
+      "topics": {
+        "legacy-doc::topic_0000": {
+          "id": "legacy-doc::topic_0000",
+          "doc_id": "legacy-doc",
+          "title": "温控流程",
+          "chunk_ids": ["legacy-doc::chunk_000000", "legacy-doc::chunk_000001"],
+          "centroid": [0.70710677, 0.70710677]
+        }
+      },
+      "chunk_to_topic": {
+        "legacy-doc::chunk_000000": "legacy-doc::topic_0000",
+        "legacy-doc::chunk_000001": "legacy-doc::topic_0000"
+      }
+    }
+  },
   "processed_chunks": {"legacy-doc": 2}
 }

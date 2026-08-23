@@ -265,6 +265,20 @@ class KnowledgeStore:
             graph[row["source"]][row["target"]] = int(row["weight"])
         return dict(graph)
 
+    def replace_graph(self, graph: dict[str, dict[str, int]]) -> None:
+        with self._connect() as connection:
+            connection.execute("DELETE FROM concept_edges")
+            connection.executemany(
+                "INSERT INTO concept_edges(source, target, weight) VALUES(?, ?, ?)",
+                [
+                    (str(source), str(target), int(weight))
+                    for source, neighbors in graph.items()
+                    if isinstance(neighbors, dict)
+                    for target, weight in neighbors.items()
+                    if source != target and int(weight) > 0
+                ],
+            )
+
     def replace_topics(self, doc_id: str, topics: list[dict[str, object]]) -> None:
         with self._connect() as connection:
             old_ids = [
@@ -344,3 +358,38 @@ class KnowledgeStore:
                 doc_name=str(metadata.get("name") or ""),
                 doc_path=str(metadata.get("path") or ""),
             )
+        for doc_id, metadata in documents.items():
+            self.ensure_document(
+                str(doc_id),
+                name=str(metadata.get("name") or ""),
+                path=str(metadata.get("path") or ""),
+            )
+            self.set_progress(str(doc_id), int(progress.get(doc_id, 0)))
+
+        legacy_graph = data.get("knowledge_graph")
+        if isinstance(legacy_graph, dict) and legacy_graph:
+            self.replace_graph(legacy_graph)
+
+        known_chunk_ids = set(data.get("chunks", {}))
+        for doc_id, raw_index in (data.get("topic_index") or {}).items():
+            raw_topics = raw_index.get("topics", {}) if isinstance(raw_index, dict) else {}
+            topic_values = raw_topics.values() if isinstance(raw_topics, dict) else raw_topics
+            topics = []
+            for raw_topic in topic_values:
+                chunk_ids = [str(value) for value in raw_topic.get("chunk_ids", [])]
+                missing = [chunk_id for chunk_id in chunk_ids if chunk_id not in known_chunk_ids]
+                if missing:
+                    raise ValueError(f"topic 引用了不存在的 chunk: {missing[0]}")
+                centroid = np.asarray(raw_topic.get("centroid") or [], dtype=np.float32)
+                if not centroid.size:
+                    continue
+                topics.append(
+                    {
+                        "id": str(raw_topic.get("id") or f"{doc_id}::topic_{len(topics):04d}"),
+                        "title": str(raw_topic.get("title") or "未命名主题"),
+                        "centroid": centroid,
+                        "chunk_ids": chunk_ids,
+                    }
+                )
+            if topics:
+                self.replace_topics(str(doc_id), topics)

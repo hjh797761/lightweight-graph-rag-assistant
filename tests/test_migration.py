@@ -21,6 +21,8 @@ def test_migration_preserves_json_and_counts(tmp_path: Path):
     store = KnowledgeStore(target)
     assert store.count_chunks() == 2
     assert store.get_progress("legacy-doc") == 2
+    assert store.load_graph()["温度传感器"]["控制器"] == 3
+    assert store.list_topics("legacy-doc")[0]["title"] == "温控流程"
 
 
 def test_failed_migration_does_not_replace_target(tmp_path: Path):
