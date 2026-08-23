@@ -93,13 +93,16 @@ def write_markdown(report: dict, path: Path) -> None:
         "",
         f"Embedding backend: `{report['embedding_backend']}`",
         "",
-        "| Question | Profile | Evidence recall | Reciprocal rank |",
-        "|---|---|---:|---:|",
+        "| Question | Profile | Evidence recall | Reciprocal rank | Retrieval seconds | Selected chunks | Scores |",
+        "|---|---|---:|---:|---:|---|---|",
     ]
     for question in report["questions"]:
         for row in question["results"]:
+            chunks = ", ".join(row["selected_chunks"]) or "-"
+            scores = ", ".join(f"{score:.4f}" for score in row["scores"]) or "-"
             lines.append(
-                f"| {question['id']} | {row['profile']} | {row['evidence_recall']:.3f} | {row['reciprocal_rank']:.3f} |"
+                f"| {question['id']} | {row['profile']} | {row['evidence_recall']:.3f} | "
+                f"{row['reciprocal_rank']:.3f} | {row['retrieval_seconds']:.6f} | {chunks} | {scores} |"
             )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

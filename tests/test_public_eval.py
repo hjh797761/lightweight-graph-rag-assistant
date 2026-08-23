@@ -1,10 +1,11 @@
 from pathlib import Path
 
-from scripts.retrieval_eval import evaluate, load_fixture
+from scripts.retrieval_eval import evaluate, load_fixture, write_markdown
 
 
 class FakeChunk:
     def __init__(self, text):
+        self.id = "doc::chunk_000000"
         self.clean_text = text
 
 
@@ -47,3 +48,15 @@ def test_evaluation_runs_all_profiles_with_same_scope_and_budget(tmp_path):
         assert len(budgets) == 1
         assert all(row["retrieval_seconds"] >= 0 for row in question["results"])
         assert all("scores" in row for row in question["results"])
+
+
+def test_markdown_report_keeps_auditable_fields(tmp_path):
+    report = evaluate(FakeService(), Path("examples/eval_questions.json"))
+    output = tmp_path / "report.md"
+
+    write_markdown(report, output)
+
+    markdown = output.read_text(encoding="utf-8")
+    assert "Retrieval seconds" in markdown
+    assert "Selected chunks" in markdown
+    assert "doc::chunk_000000" in markdown
