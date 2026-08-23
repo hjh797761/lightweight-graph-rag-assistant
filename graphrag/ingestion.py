@@ -5,7 +5,7 @@ import re
 import numpy as np
 
 from .errors import DocumentParseError
-from .graph import extract_concepts
+from .graph import build_topics, extract_concepts
 from .models import ChunkRecord
 
 
@@ -117,6 +117,8 @@ def ingest_text(
         doc_name=doc_name,
         doc_path=doc_path,
     )
+    if next_index >= len(pairs):
+        store.replace_topics(doc_id, build_topics(store.list_chunks(doc_id)))
     return next_index, len(pairs)
 
 

@@ -1,6 +1,8 @@
 from collections import Counter
 import re
 
+import numpy as np
+
 
 GENERIC_CONCEPTS = {
     "公司",
@@ -38,3 +40,44 @@ def build_concept_edges(groups) -> dict[tuple[str, str], int]:
                 if source != target:
                     edges[(source, target)] += 1
     return dict(edges)
+
+
+def build_topics(chunks, min_similarity: float = 0.78) -> list[dict[str, object]]:
+    clusters: list[dict[str, object]] = []
+    for chunk in sorted(chunks, key=lambda item: (item.doc_id, item.sequence)):
+        vector = np.asarray(chunk.embedding, dtype=np.float32).reshape(-1)
+        norm = float(np.linalg.norm(vector))
+        if not vector.size or norm == 0:
+            continue
+        vector = vector / norm
+        similarities = [float(cluster["centroid"] @ vector) for cluster in clusters]
+        best_index = int(np.argmax(similarities)) if similarities else -1
+        if best_index >= 0 and similarities[best_index] >= min_similarity:
+            cluster = clusters[best_index]
+            cluster["vectors"].append(vector)
+            cluster["chunks"].append(chunk)
+            centroid = np.mean(cluster["vectors"], axis=0)
+            centroid_norm = float(np.linalg.norm(centroid)) or 1.0
+            cluster["centroid"] = np.asarray(centroid / centroid_norm, dtype=np.float32)
+        else:
+            clusters.append({"centroid": vector, "vectors": [vector], "chunks": [chunk]})
+
+    topics = []
+    for index, cluster in enumerate(clusters):
+        members = cluster["chunks"]
+        title_candidates = [
+            concept
+            for chunk in members
+            for concept in chunk.concepts
+            if valid_concept(concept)
+        ]
+        title = " / ".join(dict.fromkeys(title_candidates))[:60] or members[0].chapter
+        topics.append(
+            {
+                "id": f"{members[0].doc_id}::topic_{index:04d}",
+                "title": title,
+                "centroid": cluster["centroid"],
+                "chunk_ids": [chunk.id for chunk in members],
+            }
+        )
+    return topics

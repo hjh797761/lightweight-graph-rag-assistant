@@ -29,3 +29,4 @@ def test_ingestion_encodes_and_persists_one_batch(tmp_path):
     assert embedder.calls == 1
     assert store.count_chunks() == 2
     assert store.get_progress("doc") == 2
+    assert store.list_topics("doc")
