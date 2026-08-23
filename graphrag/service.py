@@ -6,7 +6,7 @@ import shutil
 
 from .answering import generate_answer as call_answer_model
 from .config import AppConfig
-from .embeddings import EmbeddingBackend, OpenAIEmbeddingBackend
+from .embeddings import CrossEncoderReranker, EmbeddingBackend, OpenAIEmbeddingBackend
 from .ingestion import ingest_file
 from .migration import migrate_legacy_json
 from .retrieval import Retriever
@@ -43,7 +43,18 @@ class GraphRAGService:
 
     def _ensure_retriever(self):
         if self._retriever is None:
-            self._retriever = Retriever(self.store, self._ensure_embedder(), vector_recall_k=self.config.vector_recall_k, final_top_k=self.config.final_top_k)
+            reranker = None
+            if self.config.enable_cross_encoder:
+                reranker = CrossEncoderReranker.load(
+                    self.config.cross_encoder_model, self.config.offline_mode
+                )
+            self._retriever = Retriever(
+                self.store,
+                self._ensure_embedder(),
+                vector_recall_k=self.config.vector_recall_k,
+                final_top_k=self.config.final_top_k,
+                reranker=reranker,
+            )
         return self._retriever
 
     def load(self) -> dict[str, int]:

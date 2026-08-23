@@ -1,6 +1,7 @@
 import numpy as np
 
-from graphrag.embeddings import EmbeddingBackend, OpenAIEmbeddingBackend
+from graphrag.embeddings import CrossEncoderReranker, EmbeddingBackend, OpenAIEmbeddingBackend
+from graphrag.models import ChunkRecord
 
 
 class FakeModel:
@@ -55,3 +56,20 @@ def test_openai_compatible_backend_embeds_a_batch():
     assert client.embeddings.seen == ("remote-model", ["甲", "乙"])
     assert result.dtype == np.float32
     assert np.allclose(np.linalg.norm(result, axis=1), 1.0)
+
+
+def test_cross_encoder_reranker_sorts_candidates():
+    class FakeCrossEncoder:
+        def predict(self, pairs, show_progress_bar=False):
+            assert show_progress_bar is False
+            assert pairs[0][0] == "问题"
+            return np.asarray([0.1, 0.9], dtype=np.float32)
+
+    chunks = [
+        ChunkRecord("a", "doc", 0, "甲", "甲"),
+        ChunkRecord("b", "doc", 1, "乙", "乙"),
+    ]
+
+    ranked = CrossEncoderReranker(FakeCrossEncoder())("问题", chunks)
+
+    assert [chunk.id for chunk, _ in ranked] == ["b", "a"]

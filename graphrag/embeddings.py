@@ -83,3 +83,30 @@ class OpenAIEmbeddingBackend:
 
     def encode_one(self, text: str) -> np.ndarray:
         return self.encode_many([text], batch_size=1)[0]
+
+
+class CrossEncoderReranker:
+    def __init__(self, model):
+        self.model = model
+
+    @classmethod
+    def load(cls, name: str, offline: bool, loader=None):
+        if loader is None:
+            from sentence_transformers import CrossEncoder
+
+            loader = CrossEncoder
+        try:
+            return cls(loader(name, local_files_only=offline))
+        except Exception as exc:
+            mode = "离线缓存" if offline else "在线下载"
+            raise ModelUnavailableError(f"无法通过{mode}加载精排模型 {name}") from exc
+
+    def __call__(self, query: str, chunks):
+        pairs = [(query, chunk.clean_text) for chunk in chunks]
+        scores = self.model.predict(pairs, show_progress_bar=False)
+        ranked = sorted(
+            zip(chunks, (float(score) for score in scores)),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+        return ranked
