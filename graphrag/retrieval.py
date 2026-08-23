@@ -54,6 +54,15 @@ def _keyword_score(query_terms: tuple[str, ...], text: str) -> float:
     return hits / len(query_terms)
 
 
+def _selection_limit(query: str, budget: int, dynamic: bool) -> int:
+    if not dynamic:
+        return budget
+    markers = ("分别", "比较", "原因", "条件", "步骤", "影响", "以及", "同时")
+    complexity = sum(1 for marker in markers if marker in query)
+    complexity += max(0, len(re.findall(r"[？?；;]", query)) - 1)
+    return min(budget, 3 + min(complexity, 3))
+
+
 class Retriever:
     def __init__(
         self,
@@ -160,7 +169,7 @@ class Retriever:
             candidate_chunks = [chunk_by_id[chunk_id] for chunk_id, _ in ranked]
             reranked = self.reranker(query, candidate_chunks)
             ranked = [(chunk.id, float(score)) for chunk, score in reranked]
-        ranked = ranked[:budget]
+        ranked = ranked[: _selection_limit(query, budget, settings.dynamic_top_k)]
         selected = [chunk_by_id[chunk_id] for chunk_id, _ in ranked]
         context = self._build_context(selected)
         return RetrievalResult(
