@@ -7,20 +7,35 @@
 ```bash
 sinfo -o '%P %a %l %D %t %G'
 squeue --me -o '%.18i %.14P %.22j %.10T %.10M %.10l %R'
+module load Anaconda3/2025.06
 module list 2>&1
 command -v python
 python --version
-ls -ld "/data1/$USER" "/data2/$USER"
+conda env list
+id
+for project_group in $(id -Gn); do
+  for project_disk in /data1 /data2; do
+    project_dir="$project_disk/$project_group/$(id -un)"
+    if [ -d "$project_dir" ]; then
+      ls -ld "$project_dir"
+      if [ -w "$project_dir" ]; then
+        printf 'Writable project storage: %s\n' "$project_dir"
+      fi
+    fi
+  done
+done
 ```
 
-回传这些结果后选择真实分区、项目目录和环境。不要假设分区名是 4090/L40，不改动其他作业。
+学院文档规定数据目录为 `/data2/用户组/用户名`，而非 `/data2/用户名`。上面逐一检查所属组，避免多个组导致路径拼接错误。若未列出数据目录，回传输出后继续核对，不在共享根目录自行创建目录。模块只改变当前登录 shell，不修改已有作业。
+
+回传这些结果后选择真实分区、项目目录和环境。不要假设分区名是 4090/L40，不改动其他作业。[存储说明](https://saids.hpc.gleamoe.com/guideline/storage/)、[软件说明](https://saids.hpc.gleamoe.com/guideline/software/)。
 
 ## 环境
 
 在已确认属于自己的数据目录中 clone 项目并进入仓库。准备独立的 CUDA Python 环境；本机 CPU 环境不能直接复制。依赖安装与模型下载先完成，避免耗尽 GPU 探测时限。
 
 ```bash
-python -c 'import torch; print(torch.__version__, torch.version.cuda)'
+python -c 'import importlib.metadata as m; import torch; print(m.version("torch"), torch.version.cuda)'
 export PYTHON_BIN="$(command -v python)"
 ```
 
@@ -35,6 +50,15 @@ bash cluster/check_queue.sh "$PARTITION"
 ```
 
 `sbatch --test-only` 做提交检查和调度估计，不真实排队；时间可能缺失或变化。然后仅提交一个任务：
+
+也可在准备代码之前比较已确认存在的 RTX4090 和 L40 分区，资源与默认探测一致：
+
+```bash
+sbatch --test-only --partition=RTX4090 --nodes=1 --ntasks=1 --gres=gpu:1 --cpus-per-task=4 --mem=32G --time=00:10:00 --wrap='true'
+sbatch --test-only --partition=L40 --nodes=1 --ntasks=1 --gres=gpu:1 --cpus-per-task=4 --mem=32G --time=00:10:00 --wrap='true'
+```
+
+准备完成后才执行下方实际提交命令。示例中的 `<JOB_ID>` 不能原样粘贴，尖括号会被 Bash 当作重定向；下方自动保存真实作业号：
 
 ```bash
 job_id=$(sbatch --parsable --partition="$PARTITION" cluster/probe_gpu.slurm)
