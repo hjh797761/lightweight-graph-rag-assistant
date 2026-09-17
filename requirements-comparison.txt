@@ -1,0 +1,2 @@
+# Optional external comparison adapter; normal application install is unchanged.
+llama-index-core==0.14.24

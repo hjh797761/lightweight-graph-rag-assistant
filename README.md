@@ -143,6 +143,16 @@ GitHub Actions 在 Windows 和 Ubuntu、Python 3.10 与 3.12 上运行测试、�
 
 更多细节见 [系统设计](docs/system_design.md) 和 [评测说明](docs/evaluation.md)。
 
+## 开源项目对比与 GPU 集群
+
+新增全库检索对比入口，支持本项目和 LlamaIndex VectorStoreIndex 的独立运行，记录逐题排名、Recall/MRR/nDCG、失败数与耗时。先运行不下载模型的 CPU 烟测：
+
+```powershell
+python -B scripts/external_comparison.py --dataset examples/comparison_smoke.json --out .tmp/comparison-smoke-01 --system project --profile vector
+```
+
+合成烟测仅验证链路，不代表公共数据集成绩。LightRAG、Microsoft GraphRAG 的对比及正式 GPU 数据集评测尚待完成。使用方法见 [外部对比说明](docs/external_comparison.md)；单卡十分钟探测和预计启动时间查询见 [集群运行说明](cluster/README.md)。
+
 ## License
 
 [MIT](LICENSE)

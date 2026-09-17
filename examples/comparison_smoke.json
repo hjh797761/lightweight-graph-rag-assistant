@@ -1,0 +1,16 @@
+{
+  "name": "original-four-document-smoke",
+  "purpose": "smoke",
+  "documents": [
+    {"id": "cooling", "text": "温度传感器持续监测反应器温度。温度超过八十摄氏度时，控制器打开冷却阀。\n\n冷却阀打开后冷却水进入夹套。温度降到六十摄氏度时关闭冷却阀。"},
+    {"id": "finance", "text": "公司本期收入为一千二百万元，上期收入为一千万元。增长主要来自设备销售。\n\n服务业务本期收入三百万元，与上期持平。设备销售占本期总收入的四分之三。"},
+    {"id": "backup", "text": "知识库每日凌晨两点进行增量备份，每周日进行完整备份。\n\n恢复演练每月执行一次。演练先在隔离目录还原数据，再检查文档数量和检索结果。"},
+    {"id": "library", "text": "图书馆工作日开放时间为上午八点至晚上九点，周末为上午九点至下午五点。\n\n借阅证有效期一年。每位读者最多借阅五本书，借期三十天。"}
+  ],
+  "queries": [
+    {"id": "dev-cooling", "question": "冷却阀什么时候打开？", "split": "dev", "relevant_documents": {"cooling": 1}},
+    {"id": "dev-finance", "question": "公司收入增长主要来自哪项业务？", "split": "dev", "relevant_documents": {"finance": 1}},
+    {"id": "test-backup", "question": "知识库完整备份和恢复演练的频率分别是多少？", "split": "test", "relevant_documents": {"backup": 1}},
+    {"id": "test-library", "question": "周末图书馆几点关闭，每人最多能借几本书？", "split": "test", "relevant_documents": {"library": 1}}
+  ]
+}

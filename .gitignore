@@ -23,6 +23,8 @@ venv/
 .deepeval/
 eval_kbs/
 nano_eval_work/
+lgrag-probe-*.out
+lgrag-probe-*.err
 *_report.json
 *_results.json
 *_cases.json
