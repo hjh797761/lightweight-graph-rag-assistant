@@ -62,6 +62,16 @@ def test_long_sentence_reference_can_cross_a_forced_chunk_boundary():
     assert text[refs[0].source_start:refs[0].source_end] == refs[0].basis
 
 
+@pytest.mark.parametrize("heading", ["###### 第1条", "   ###### 第1条 ###", "###### Clause 1. See section 2.1 ###"])
+def test_forced_heading_cuts_never_turn_declarations_into_references(heading):
+    parser = structure()
+    text = heading + "\nbody."
+    for size in (4, 800):
+        chunks = parser.parse_text(text, "doc", chunk_size=size)
+        refs = [link for link in parser.build_links(chunks) if link.kind == "explicit_reference"]
+        assert refs == []
+
+
 def test_numbered_txt_sections_resolve_forward_and_missing_references():
     parser = structure()
     text = "第一条 范围\n参见第三条及第九条。\n第三条 实施\n具体办法。"

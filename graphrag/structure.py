@@ -54,18 +54,19 @@ def _headings(text, format):
                 match = _ATX.match(value)
                 if match:
                     title = re.sub(r"[ \t]+#+[ \t]*$", "", match.group(2) or "").strip()
-                    result.append((offset, len(match.group(1)), title))
+                    result.append((offset, len(match.group(1)), title, offset + len(value)))
                 elif value.strip() and not re.match(r"^(?: {4}|\t|\s*[-*+>]\s)", value) and index + 1 < len(lines):
                     underline = re.fullmatch(r" {0,3}(=+|-+)[ \t]*", lines[index + 1].rstrip("\r\n"))
                     if underline:
-                        result.append((offset, 1 if underline.group(1)[0] == "=" else 2, value.strip()))
+                        result.append((offset, 1 if underline.group(1)[0] == "=" else 2, value.strip(),
+                                       offset + len(line) + len(lines[index + 1].rstrip("\r\n"))))
                         underline_index = index + 1
         else:
             match = _REFERENCE.match(value.lstrip())
             if match and (match.end() == len(value.lstrip()) or value.lstrip()[match.end()].isspace()):
                 unit = match.group("unit") or match.group("en").lower()
                 level = {"章": 1, "chapter": 1, "节": 2, "section": 2, "条": 3, "clause": 3}[unit]
-                result.append((offset, level, value.strip()))
+                result.append((offset, level, value.strip(), offset + len(value)))
         offset += len(line)
     return result
 
@@ -73,17 +74,18 @@ def _headings(text, format):
 def _blocks(text, doc_id, headings):
     boundaries = list(headings)
     if not boundaries or boundaries[0][0] > 0:
-        boundaries.insert(0, (0, 0, None))
+        boundaries.insert(0, (0, 0, None, None))
     stack = []
     result = []
-    for index, (start, level, title) in enumerate(boundaries):
+    for index, (start, level, title, heading_end) in enumerate(boundaries):
         end = boundaries[index + 1][0] if index + 1 < len(boundaries) else len(text)
         if title is not None:
             while stack and stack[-1][0] >= level:
                 stack.pop()
             stack.append((level, title))
         section_id = f"{doc_id}::section_{start}" if title is not None else None
-        result.append(SourceBlock(text[start:end], section_id, tuple(t for _, t in stack), start=start, end=end))
+        result.append(SourceBlock(text[start:end], section_id, tuple(t for _, t in stack),
+                                  start=start, end=end, heading_end=heading_end))
     return result
 
 
@@ -145,7 +147,7 @@ def _chunks(text, doc_id, blocks, chunk_size, locator):
                 chapter=block.title_path[-1] if block.title_path else "未分类",
                 section_id=block.section_id, title_path=block.title_path,
                 locator=locator(start, end), source_start=start, source_end=end,
-                partial=partial, source_text=raw,
+                partial=partial, source_text=raw, heading_end=block.heading_end,
             ))
     return result
 
@@ -184,7 +186,7 @@ def parse_file(path: str | Path, doc_id: str, chunk_size: int = 800) -> list[Evi
                 name = style.name if style is not None else ""
                 match = re.fullmatch(r"Heading\s+([1-9])", name, re.IGNORECASE)
                 if match:
-                    headings.append((offset, int(match.group(1)), paragraph.text.strip()))
+                    headings.append((offset, int(match.group(1)), paragraph.text.strip(), offset + len(paragraph.text)))
                 offset += len(paragraph.text) + 1
             locator = lambda a, b: f"paragraphs {bisect_right(starts, a)}-{bisect_right(starts, max(a, b - 1))}"
             return _chunks(text, doc_id, _blocks(text, doc_id, headings), chunk_size, locator)
@@ -243,7 +245,6 @@ def build_links(chunks: list[EvidenceChunk]) -> list[EvidenceLink]:
         if chunk.section_id is not None:
             groups[(chunk.doc_id, chunk.section_id)].append(chunk)
     labels = defaultdict(list)
-    heading_ends = {}
     for (doc_id, section_id), members in groups.items():
         members.sort(key=lambda c: c.sequence)
         first = members[0]
@@ -251,8 +252,6 @@ def build_links(chunks: list[EvidenceChunk]) -> list[EvidenceLink]:
         match = _REFERENCE.match(title)
         if match:
             labels[(doc_id, _label(match))].append(members)
-        prefix = re.match(r"^ {0,3}#{1,6}[ \t]+", first.source_text)
-        heading_ends[(doc_id, section_id)] = first.source_start + len(title) + (prefix.end() if prefix else 0)
     links = []
     for doc_id, members in documents.items():
         members.sort(key=lambda c: c.sequence)
@@ -265,7 +264,7 @@ def build_links(chunks: list[EvidenceChunk]) -> list[EvidenceLink]:
                     links.extend((EvidenceLink(previous.id, chunk.id, "adjacent", "consecutive chunks in same section"),
                                   EvidenceLink(chunk.id, previous.id, "adjacent", "consecutive chunks in same section")))
         for chunk, match, start, end in _reference_spans(members):
-            if start < heading_ends.get((doc_id, chunk.section_id), -1):
+            if chunk.heading_end is not None and start < chunk.heading_end:
                 continue
             candidates = labels.get((doc_id, _label(match)), [])
             status = "resolved" if len(candidates) == 1 else "missing" if not candidates else "ambiguous"

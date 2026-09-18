@@ -22,6 +22,7 @@ class SourceBlock:
     locator: str = ""
     start: int = 0
     end: int = 0
+    heading_end: int | None = None
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,7 @@ class EvidenceChunk(ChunkRecord):
     source_end: int = 0
     partial: bool = False
     source_text: str = ""
+    heading_end: int | None = None
 
 
 @dataclass(frozen=True)
