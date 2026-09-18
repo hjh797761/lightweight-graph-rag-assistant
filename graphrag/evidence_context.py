@@ -96,14 +96,20 @@ def _render(chunks, roles, reasons, links, *, support_only=False) -> str:
     return "".join(supporting_blocks) if support_only else "\n\n".join(blocks)
 
 
-def _load_support(loaded, cores, decisions):
+def _load_support(loaded, cores, decisions, *, supplements_enabled):
     core_by_id = {c.id: c for c in cores}
     core_order = {c.id: i for i, c in enumerate(cores)}
     links, reasons, candidates = [], {}, {}
+    observed_kinds = set()
+    has_unresolved = False
     for link, targets in loaded:
-        if link.source_id not in core_by_id or link.kind not in ("explicit_reference", "adjacent"):
+        if link.source_id not in core_by_id:
+            continue
+        observed_kinds.add(link.kind)
+        if link.kind not in ("explicit_reference", "adjacent"):
             continue
         if link.status != "resolved":
+            has_unresolved = True
             decisions.append({"source_id": link.source_id, "kind": link.kind, "status": link.status})
             continue
         links.append(link)
@@ -125,6 +131,20 @@ def _load_support(loaded, cores, decisions):
     for values in reasons.values():
         values.sort(key=lambda r: (0 if r["kind"] == "explicit_reference" else 1,
                                    core_order[r["source_id"]], r["basis"], r["source_start"], r["source_end"]))
+    if candidates:
+        association_state = "available"
+    elif not observed_kinds:
+        association_state = "no_links"
+    elif observed_kinds == {"section_member"}:
+        association_state = "section_membership_only"
+    elif has_unresolved and not links:
+        association_state = "unresolved_only"
+    else:
+        association_state = "no_usable_links"
+    decisions.append({"phase": "association", "status": association_state,
+                      "association_state": association_state,
+                      "supplements_enabled": supplements_enabled,
+                      "expansion_status": "enabled" if supplements_enabled else "disabled_supplements"})
     return links, reasons, [c for _, c in sorted(candidates.values(), key=lambda item: item[0])]
 
 
@@ -163,10 +183,9 @@ def assemble_context(
     if not unique:
         return result
     supplement_cap = min(options.max_supplements, options.max_chunks - 1)
-    if options.supplement_fraction == 0:
-        supplement_cap = 0
     core_quota = options.max_chunks - supplement_cap
-    initial_budget = options.context_budget * (1-options.supplement_fraction) if supplement_cap else options.context_budget
+    supplements_enabled = supplement_cap > 0 and options.supplement_fraction > 0
+    initial_budget = options.context_budget * (1-options.supplement_fraction) if supplements_enabled else options.context_budget
     chunks, roles, scores = [], [], []
     reasons, links = {}, []
 
@@ -190,7 +209,9 @@ def assemble_context(
         else:
             decisions.append({"chunk_id": chunk.id, "status": "budget_skipped", "phase": "initial_core"})
     if chunks:
-        links, reasons, candidates = _load_support(link_loader([c.id for c in chunks]), chunks, decisions)
+        links, reasons, candidates = _load_support(
+            link_loader([c.id for c in chunks]), chunks, decisions,
+            supplements_enabled=supplements_enabled)
         # Newly discovered annotations are charged too. A very long link reason
         # may consume the initial reserve; remove whole trailing blocks if needed.
         while chunks and cost(render(chunks, roles)) > options.context_budget:
@@ -203,6 +224,9 @@ def assemble_context(
             if candidate.id in selected_ids:
                 continue
             if not any(r["source_id"] in selected_ids for r in reasons[candidate.id]):
+                continue
+            if not supplements_enabled:
+                decisions.append({"chunk_id": candidate.id, "status": "disabled_supplements", "phase": "supplement"})
                 continue
             if roles.count("supplement") >= supplement_cap or len(chunks) >= options.max_chunks:
                 decisions.append({"chunk_id": candidate.id, "status": "cap_skipped", "phase": "supplement"})

@@ -247,3 +247,44 @@ def test_core_scores_must_be_finite_numbers(score):
     Options, assemble = api()
     with pytest.raises(ValueError):
         assemble([(chunk("a"), score)], lambda _: [], options=Options())
+
+
+def test_zero_supplement_fraction_preserves_initial_core_quota():
+    Options, assemble = api()
+    a, b, c = [chunk(id, id * 5, start=i * 20) for i, id in enumerate("abc")]
+    loaded_ids = []
+    result = assemble([(a, .9), (b, .8), (c, .7)], lambda ids: loaded_ids.append(ids) or [],
+                      options=Options(max_chunks=3, max_supplements=1, supplement_fraction=0))
+    assert loaded_ids == [["a", "b"]]
+    assert result.chunks == [a, b, c] and result.roles == ["core"] * 3
+    assert any(d.get("chunk_id") == "c" and d.get("status") == "selected"
+               and d.get("phase") == "unexpanded_core" for d in result.decisions)
+
+
+@pytest.mark.parametrize("loaded,expected_state", [
+    ([], "no_links"),
+    ([(link("a", None, status="missing"), [])], "unresolved_only"),
+    ([(link("a", "section", "section_member"), [])], "section_membership_only"),
+])
+def test_association_information_is_explicit_without_charging_context(loaded, expected_state):
+    Options, assemble = api()
+    a = chunk("a", "CORE")
+    result = assemble([(a, .9)], lambda _: loaded, options=Options())
+    state = next(d for d in result.decisions if d.get("phase") == "association")
+    assert state["association_state"] == expected_state
+    assert state["supplements_enabled"] is True
+    assert result.chunks == [a] and result.status == "ok"
+    baseline = assemble([(a, .9)], lambda _: [], options=Options())
+    assert result.context == baseline.context
+    assert result.budget_used == len(result.context)
+
+
+@pytest.mark.parametrize("kwargs", [{"max_chunks": 1}, {"max_supplements": 0}, {"supplement_fraction": 0}])
+def test_disabled_supplement_diagnostic_is_distinct_from_missing_links(kwargs):
+    Options, assemble = api()
+    result = assemble([(chunk("a"), .9)], lambda _: [], options=Options(**kwargs))
+    state = next(d for d in result.decisions if d.get("phase") == "association")
+    assert state["association_state"] == "no_links"
+    assert state["supplements_enabled"] is False
+    assert state["expansion_status"] == "disabled_supplements"
+    assert result.chunks and result.status == "ok"
