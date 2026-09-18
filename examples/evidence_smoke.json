@@ -1,0 +1,13 @@
+{
+  "name": "original evidence association smoke",
+  "purpose": "smoke",
+  "documents": [
+    {"id": "harbor", "text": "# Section 1\nHarbor workshop accepts reservations on weekdays. For cancellation exceptions see section 2.\n# Section 2\nA severe weather alert permits cancellation without a fee.\n# Section 3\nVisitors return tools before closing."},
+    {"id": "orchard", "text": "# Section 1\nOrchard workshop provides seed storage on weekends."}
+  ],
+  "queries": [
+    {"id": "harbor-dev", "question": "Harbor workshop reservation cancellation", "split": "dev", "relevant_documents": {"harbor": 1}, "reference_target_ids": ["harbor::chunk_000001"], "reference_targets_exhaustive": true},
+    {"id": "unlabelled-dev", "question": "When can visitors use the workshops?", "split": "dev"},
+    {"id": "orchard-test", "question": "Where can I store seeds on weekends?", "split": "test", "relevant_documents": {"orchard": 1}}
+  ]
+}

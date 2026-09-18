@@ -1,6 +1,8 @@
 # 开源项目检索对比
 
-当前提供本项目与 LlamaIndex VectorStoreIndex 的可执行适配。LightRAG 与 Microsoft GraphRAG 是候选，尚未跑出对比结果。合成 smoke 分数不代表 CRUD-RAG 成绩。
+本文及 `scripts/external_comparison.py` 描述 **legacy adapters**，不包含新的 `evidence` 适配器。当前提供本项目旧 profile 与 LlamaIndex VectorStoreIndex 的可执行适配。LightRAG 与 Microsoft GraphRAG 是候选，尚未跑出对比结果。合成 smoke 分数不代表 CRUD-RAG 成绩。
+
+新默认路径及同真实服务评估见[证据助手说明](evidence_assistant.md)。既有 400 文档、30 道 dev 题及跨系统/GPU 结果属于旧实现条件，不能解释为新证据路径获胜。旧协议和报告均保留，不将新评估指标混入旧结果。
 
 ## 输入
 
@@ -28,7 +30,7 @@ python -B scripts/external_comparison.py --dataset examples/comparison_smoke.jso
 - LlamaIndex 调用真实 VectorStoreIndex，共享分块与 embedding，没有生成模型。这是特定向量检索配置，不代表该框架全部方案。
 - 输出预算按 chunk 计算，再按首次出现顺序得到文档排名。Recall/MRR/nDCG 对该排名计算，短排名不补齐，报告同时显示返回 chunk 数。
 - project full 默认保持动态选择，可能不足十个 chunk；各配置分别报告。实验参数 `--fixed-output-k` 只覆盖最终返回数量，不改变 top-k 候选/桥接预算。
-- 图与关键词可能产生额外候选；无 reranker 时不声称总候选数相同。启用 reranker 后按统一上限截断重排候选。
+- 当前 legacy 启用 reranker 时，在图/关键词扩展后按上限截断重排候选；关闭 reranker 时不声称总候选数相同，向量与原始并集数也可能不同。旧版 `full` 的额外候选曾可能突破重排上限，历史报告没有按当前代码重算，比较时必须检查代码版本与实际候选计数。
 - warm-up 单独计时。逐题耗时包含编码、检索和可选重排；全部请求与成功请求的 P50/P95 分别记录。串行吞吐不是并发服务吞吐。
 - 共享编码与各系统建库开销分列。project 按 profile 构建所需组件：仅图配置构建概念图，仅主题配置构建主题；LlamaIndex 包含持久化。旧版 project 对所有 profile 都建图和主题，新旧建库耗时需结合配置解释。
 - GPU 指标是 PyTorch allocator 峰值，不是整卡显存。排队时间不计入查询性能。
