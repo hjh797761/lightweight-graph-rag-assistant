@@ -199,6 +199,7 @@ def test_builder_exclusive_output_and_complete_resume_refusal(tmp_path, capsys):
     assert f"KB_PATH={out.resolve()}" in output
     assert "RETRIEVAL_PROFILE=evidence" in output and "EMBEDDING_BACKEND=deterministic" in output
     assert "EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5" in output and "OFFLINE_MODE=1" in output
+    assert "ENABLE_CROSS_ENCODER=0" in output
     assert EvidenceStore(out).list_documents()[0]["state"] == "complete"
     before = out.read_bytes()
     with pytest.raises((ValueError, FileExistsError)):
@@ -206,6 +207,20 @@ def test_builder_exclusive_output_and_complete_resume_refusal(tmp_path, capsys):
     with pytest.raises(ValueError, match="complete"):
         module.main(args + ["--resume"])
     assert out.read_bytes() == before
+
+
+def test_printed_configuration_retrieves_offline_without_loading_reranker(tmp_path, monkeypatch, capsys):
+    out = tmp_path / "built.sqlite3"
+    builder().main(["--input", str(source(tmp_path)), "--out", str(out), "--embedding-backend", "deterministic"])
+    output = capsys.readouterr().out
+    for line in output.splitlines():
+        if line.startswith(("KB_PATH=", "RETRIEVAL_PROFILE=", "EMBEDDING_BACKEND=", "EMBEDDING_MODEL=",
+                            "OFFLINE_MODE=", "ENABLE_CROSS_ENCODER=")):
+            name, value = line.split("=", 1)
+            monkeypatch.setenv(name, value)
+    service = build_default_service(tmp_path)
+    assert service.config.enable_cross_encoder is False
+    assert service.retrieve("exception").chunks
 
 
 def test_builder_prepares_all_files_before_embedding_and_resume_validates_inputs(tmp_path, monkeypatch):

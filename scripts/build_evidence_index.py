@@ -79,6 +79,7 @@ def main(argv=None):
     print("RETRIEVAL_PROFILE=evidence")
     print(f"EMBEDDING_BACKEND={config.embedding_backend}")
     print(f"EMBEDDING_MODEL={config.embedding_model}")
+    print(f"ENABLE_CROSS_ENCODER={int(config.enable_cross_encoder)}")
     print("OFFLINE_MODE=1")
     return 0
 
