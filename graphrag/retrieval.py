@@ -76,6 +76,8 @@ class Retriever:
         final_top_k: int = 6,
         reranker=None,
     ):
+        if type(vector_recall_k) is not int or vector_recall_k <= 0:
+            raise ValueError("vector_recall_k must be a positive integer")
         self.store = store
         self.embedder = embedder
         self.vector_recall_k = vector_recall_k
@@ -143,7 +145,9 @@ class Retriever:
         if settings.use_keyword:
             normalized_terms = tuple(normalize_evidence(term) for term in query_terms)
             for chunk in chunks:
-                scores[chunk.id] += 0.20 * _keyword_score(query_terms, chunk.clean_text, normalized_terms=normalized_terms)
+                keyword_score = _keyword_score(query_terms, chunk.clean_text, normalized_terms=normalized_terms)
+                if keyword_score > 0:
+                    scores[chunk.id] += 0.20 * keyword_score
         checkpoint("keyword")
 
         if settings.use_graph:
@@ -200,6 +204,7 @@ class Retriever:
         ranked = sorted(scores.items(), key=lambda item: (-item[1], item[0]))
         checkpoint("candidate_sort")
         if self.reranker and ranked:
+            ranked = ranked[:self.vector_recall_k]
             candidate_chunks = [chunk_by_id[chunk_id] for chunk_id, _ in ranked]
             reranked = self.reranker(query, candidate_chunks)
             ranked = [(chunk.id, float(score)) for chunk, score in reranked]

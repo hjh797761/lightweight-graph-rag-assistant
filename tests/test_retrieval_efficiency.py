@@ -31,6 +31,102 @@ def fixture(tmp_path):
     return store, embedder, records
 
 
+def test_full_retrieval_bounds_reranker_candidates_in_core(tmp_path):
+    store, embedder, _ = fixture(tmp_path)
+    calls = []
+
+    def recording_reranker(query, candidates):
+        calls.append([chunk.id for chunk in candidates])
+        return [(chunk, float(len(candidates) - index))
+                for index, chunk in enumerate(candidates)]
+
+    result = Retriever(store, embedder, vector_recall_k=2,
+                       reranker=recording_reranker).retrieve("冷却", profile="full", top_k=2)
+    assert len(calls) == 1
+    assert len(calls[0]) == 2
+    assert [chunk.id for chunk in result.chunks] == calls[0]
+
+
+@pytest.mark.parametrize("candidate_k", [0, -1, 1.5, "2", None, True, False])
+def test_retriever_rejects_invalid_candidate_limits(tmp_path, candidate_k):
+    store, embedder, _ = fixture(tmp_path)
+    with pytest.raises(ValueError, match="vector_recall_k.*positive integer"):
+        Retriever(store, embedder, vector_recall_k=candidate_k)
+
+
+def test_zero_keyword_hits_do_not_expand_vector_candidates(tmp_path):
+    store, embedder, _ = fixture(tmp_path)
+    retriever = Retriever(store, embedder, vector_recall_k=2)
+    vector = retriever.retrieve("UNIQUE_TERM", profile="vector", top_k=12)
+    keyword = retriever.retrieve("UNIQUE_TERM", profile="vector_keyword", top_k=12)
+    assert len(keyword.chunks) == 2
+    assert [(chunk.id, score) for chunk, score in zip(keyword.chunks, keyword.scores)] == [
+        (chunk.id, score) for chunk, score in zip(vector.chunks, vector.scores)]
+
+
+def test_disabled_reranking_preserves_positive_keyword_expansion_and_weights(tmp_path):
+    store, embedder, records = fixture(tmp_path)
+    ids, matrix = store.vector_matrix()
+    vector_scores = dict(vector_recall(embedder.encode_one("冷却"), ids, matrix, 2))
+    expected = sorted(((chunk.id, 0.70 * vector_scores.get(chunk.id, 0.0) + 0.20)
+                       for chunk in records), key=lambda item: (-item[1], item[0]))
+    result = Retriever(store, embedder, vector_recall_k=2).retrieve(
+        "冷却", profile="vector_keyword", top_k=12)
+    assert [(chunk.id, score) for chunk, score in zip(result.chunks, result.scores)] == expected
+
+
+@pytest.mark.parametrize("candidate_k,expected_count", [(2, 2), (40, 12)])
+def test_reranking_returns_only_available_candidates_when_top_k_is_larger(
+        tmp_path, candidate_k, expected_count):
+    store, embedder, _ = fixture(tmp_path)
+    calls = []
+
+    def recording_reranker(query, candidates):
+        calls.append(len(candidates))
+        return [(chunk, float(index)) for index, chunk in enumerate(reversed(candidates))]
+
+    retriever = Retriever(store, embedder, vector_recall_k=candidate_k,
+                          reranker=recording_reranker)
+    result = retriever.retrieve("冷却", profile="full", top_k=20, fixed_output_k=20)
+    assert calls == [expected_count]
+    assert len(result.chunks) == expected_count
+    assert retriever.retrieve("冷却", profile="full", doc_scope="missing", top_k=20).chunks == []
+    assert calls == [expected_count]
+
+
+def test_comparison_wrapper_reports_actual_reranker_input_without_truncating(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from scripts import external_comparison as comparison
+
+    _, embedder, records = fixture(tmp_path)
+    embedder.model = SimpleNamespace(device="cpu", max_seq_length=128,
+                                    tokenizer=SimpleNamespace(encode=lambda text, **kwargs: list(text)))
+    calls = []
+
+    class RecordingReranker:
+        model = SimpleNamespace(device="cpu")
+
+        def __call__(self, query, candidates):
+            calls.append(len(candidates))
+            return [(chunk, float(index)) for index, chunk in enumerate(candidates)]
+
+    def unbounded_adapter(chunks, embedder, output, profile, candidate_k, top_k, reranker, **kwargs):
+        # An adapter regression must remain visible in the comparison diagnostics.
+        return lambda query: reranker(query, chunks)
+
+    monkeypatch.setattr(comparison.EmbeddingBackend, "load", lambda *args: embedder)
+    monkeypatch.setattr(comparison.CrossEncoderReranker, "load", lambda *args: RecordingReranker())
+    monkeypatch.setattr(comparison, "_project_retriever", unbounded_adapter)
+    data = {"name": "unit", "purpose": "smoke",
+            "documents": [{"id": chunk.id, "text": chunk.clean_text} for chunk in records[:3]],
+            "queries": [{"id": "q", "question": "冷却", "split": "dev",
+                         "relevant_documents": {"c00": 1}}]}
+    report = comparison.run(data, tmp_path / "run", backend="model", rerank=True,
+                            split="dev", candidate_k=2, top_k=2)
+    assert calls == [3, 3]
+    assert report["rows"][0]["reranked_candidates"] == 3
+
+
 def test_warm_vector_only_reads_candidate_chunks_and_preserves_scores(tmp_path):
     store, embedder, _ = fixture(tmp_path)
     retriever = Retriever(store, embedder, vector_recall_k=5)

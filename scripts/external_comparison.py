@@ -135,12 +135,11 @@ def run(data, output: Path, *, system="project", backend="deterministic", profil
     (output / "run_config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
     rerank_counts = []
 
-    def bounded_reranker(query, chunks):
-        selected = chunks[:candidate_k]
-        rerank_counts.append(len(selected))
-        return raw_reranker(query, selected)
+    def observed_reranker(query, chunks):
+        rerank_counts.append(len(chunks))
+        return raw_reranker(query, chunks)
 
-    reranker = bounded_reranker if raw_reranker else None
+    reranker = observed_reranker if raw_reranker else None
     sync()
     load_seconds = time.perf_counter() - started
     if gpu:
