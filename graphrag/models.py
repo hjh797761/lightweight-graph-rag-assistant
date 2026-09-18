@@ -110,7 +110,11 @@ class RetrievalProfile:
 class RetrievalResult:
     path: str
     chunks: list[ChunkRecord] = field(default_factory=list)
-    scores: list[float] = field(default_factory=list)
+    scores: list[float | None] = field(default_factory=list)
     context: str = ""
     requested_scope: str | None = None
     requested_top_k: int = 0
+    selection: EvidenceSelection | None = None
+    candidate_details: list[dict[str, Any]] = field(default_factory=list)
+    stage_seconds: dict[str, float] = field(default_factory=dict)
+    counts: dict[str, int] = field(default_factory=dict)
