@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+import math
 from typing import Any
 
 
@@ -49,6 +50,49 @@ class EvidenceLink:
     source_start: int = 0
     source_end: int = 0
     target_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class EvidenceOptions:
+    candidate_k: int = 40
+    lexical_k: int = 40
+    rrf_k: int = 60
+    max_chunks: int = 6
+    max_supplements: int = 2
+    context_budget: int = 6000
+    supplement_fraction: float = 0.30
+    budget_unit: str = "characters"
+
+    def __post_init__(self):
+        for name in ("candidate_k", "lexical_k", "rrf_k", "max_chunks", "context_budget"):
+            value = getattr(self, name)
+            if type(value) is not int or value <= 0:
+                raise ValueError(f"{name} must be a positive integer")
+        if type(self.max_supplements) is not int or self.max_supplements < 0:
+            raise ValueError("max_supplements must be a nonnegative integer")
+        fraction = self.supplement_fraction
+        if (isinstance(fraction, bool) or not isinstance(fraction, (int, float))
+                or not math.isfinite(fraction) or not 0 <= fraction < 1):
+            raise ValueError("supplement_fraction must be finite and in [0, 1)")
+        if self.budget_unit not in ("characters", "tokens"):
+            raise ValueError("budget_unit must be characters or tokens")
+
+
+@dataclass
+class EvidenceSelection:
+    chunks: list[EvidenceChunk] = field(default_factory=list)
+    roles: list[str] = field(default_factory=list)
+    scores: list[float | None] = field(default_factory=list)
+    context: str = ""
+    decisions: list[dict[str, Any]] = field(default_factory=list)
+    budget_used: int = 0
+    budget_unit: str = "characters"
+    status: str = "no_candidates"
+    reasons: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+
+    @property
+    def unit(self) -> str:
+        return self.budget_unit
 
 
 @dataclass(frozen=True)
