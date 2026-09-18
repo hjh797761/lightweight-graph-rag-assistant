@@ -7,8 +7,10 @@ from dataclasses import replace
 from datetime import datetime, timezone
 import importlib.metadata
 import json
+import os
 from pathlib import Path
 import platform
+from statistics import median
 import sys
 import time
 
@@ -52,18 +54,23 @@ def _chunks(data, embedder):
     return embedded
 
 
-def _project_retriever(chunks, embedder, output, profile, candidate_k, top_k, reranker):
+def _project_retriever(chunks, embedder, output, profile, candidate_k, top_k, reranker,
+                       fixed_output_k=None, stage_times=None):
     store = KnowledgeStore(output / "index.sqlite3")
+    settings = PROFILES[profile]
     by_doc = defaultdict(list)
     for chunk in chunks:
-        by_doc[chunk.doc_id].append(replace(chunk, concepts=extract_concepts(chunk.clean_text)))
+        concepts = extract_concepts(chunk.clean_text) if settings.use_graph else ()
+        by_doc[chunk.doc_id].append(replace(chunk, concepts=concepts))
     for doc_id, records in by_doc.items():
         store.write_chunk_batch(doc_id, records, len(records), doc_name=doc_id)
-        store.replace_topics(doc_id, build_topics(records))
+        if settings.use_topic:
+            store.replace_topics(doc_id, build_topics(records))
     retriever = Retriever(store, embedder, vector_recall_k=candidate_k, final_top_k=top_k, reranker=reranker)
 
     def retrieve(query):
-        result = retriever.retrieve(query, doc_scope=None, profile=profile, top_k=top_k)
+        result = retriever.retrieve(query, doc_scope=None, profile=profile, top_k=top_k,
+                                   fixed_output_k=fixed_output_k, stage_times=stage_times)
         return list(zip(result.chunks, result.scores))
 
     return retrieve
@@ -71,7 +78,7 @@ def _project_retriever(chunks, embedder, output, profile, candidate_k, top_k, re
 
 def run(data, output: Path, *, system="project", backend="deterministic", profile="vector",
         split="test", model="BAAI/bge-small-zh-v1.5", rerank=False, offline=True,
-        top_k=10, candidate_k=40, require_cuda=False):
+        top_k=10, candidate_k=40, require_cuda=False, fixed_output_k=None):
     validate_dataset(data)
     if system not in {"project", "llamaindex"} or profile not in PROFILES or split not in {"dev", "test"}:
         raise ValueError("unknown system, profile or split")
@@ -85,6 +92,8 @@ def run(data, output: Path, *, system="project", backend="deterministic", profil
         raise ValueError("CUDA requires a real model backend")
     if not 0 < top_k <= candidate_k:
         raise ValueError("positive top_k must be no larger than candidate_k")
+    if fixed_output_k is not None and (type(fixed_output_k) is not int or not 0 < fixed_output_k <= top_k):
+        raise ValueError("fixed_output_k must be a positive integer within top_k")
     queries = [q for q in data["queries"] if q["split"] == split]
     if not queries:
         raise ValueError("requested split has no queries")
@@ -95,7 +104,10 @@ def run(data, output: Path, *, system="project", backend="deterministic", profil
               "reranker": "BAAI/bge-reranker-base" if rerank else None, "offline": offline,
               "top_k_chunk_budget": top_k, "vector_candidate_k": candidate_k,
               "chunk_characters": 800, "embedding_batch_size": 32,
-              "dynamic_selection": system == "project" and profile == "full",
+              "fixed_output_k": fixed_output_k,
+              "python_hash_seed": os.environ.get("PYTHONHASHSEED"),
+              "dynamic_selection": system == "project" and PROFILES[profile].dynamic_top_k and fixed_output_k is None,
+              "project_index_components": {"graph": PROFILES[profile].use_graph, "topics": PROFILES[profile].use_topic} if system == "project" else None,
               "device": None}
     (output / "run_config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
     print("MODEL_LOAD_BEGIN", flush=True)
@@ -139,9 +151,11 @@ def run(data, output: Path, *, system="project", backend="deterministic", profil
     sync()
     encode_seconds = time.perf_counter() - started
     print(f"INDEX_BUILD_BEGIN chunks={len(chunks)}", flush=True)
+    stage_times = {}
     started = time.perf_counter()
     if system == "project":
-        retrieve = _project_retriever(chunks, embedder, output, profile, candidate_k, top_k, reranker)
+        retrieve = _project_retriever(chunks, embedder, output, profile, candidate_k, top_k, reranker,
+                                     fixed_output_k=fixed_output_k, stage_times=stage_times)
     else:
         from scripts.comparison_adapters import llamaindex_retriever
         retrieve, index = llamaindex_retriever(chunks, embedder, candidate_k=candidate_k, top_k=top_k, reranker=reranker)
@@ -164,6 +178,8 @@ def run(data, output: Path, *, system="project", backend="deterministic", profil
             error, found = None, []
             try:
                 found = retrieve(query["question"])
+                if system == "llamaindex" and fixed_output_k is not None:
+                    found = found[:fixed_output_k]
                 sync()
             except Exception as exc:
                 error = f"{type(exc).__name__}: {exc}"
@@ -176,12 +192,17 @@ def run(data, output: Path, *, system="project", backend="deterministic", profil
                    "returned_chunks": len(found), "reranked_candidates": rerank_counts[-1] if rerank_counts else None,
                    "seconds": seconds, "error": error,
                    "returned_context_characters": len(context_text),
+                   "retrieval_stage_seconds": dict(stage_times) if system == "project" else None,
                    "returned_context_embedding_tokens": context_tokens}
             rows.append(row)
             stream.write(json.dumps(row, ensure_ascii=False, allow_nan=False) + "\n")
             stream.flush()
             print(f"QUERY_DONE {len(rows)}/{len(queries)} error={error}", flush=True)
     summary = summarize(queries, rows)
+    measured = [row["retrieval_stage_seconds"] for row in rows
+                if not row["error"] and row["retrieval_stage_seconds"]]
+    summary["project_stage_p50_seconds"] = {name: median(row[name] for row in measured)
+                                             for name in measured[0]} if measured else None
     metadata = data.get("metadata", {})
     if metadata.get("relevance_kind") == "source_document_proxy":
         summary = {(f"source_{key}" if key.startswith(("recall@", "mrr@", "ndcg@")) else key): value
@@ -217,11 +238,12 @@ def main():
     parser.add_argument("--allow-download", action="store_true", help="default only loads local model cache")
     parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument("--candidate-k", type=int, default=40)
+    parser.add_argument("--fixed-output-k", type=int, help="override only final selection; retain top-k candidate/bridge budget")
     args = parser.parse_args()
     report = run(json.loads(args.dataset.read_text(encoding="utf-8")), args.out, system=args.system,
                  profile=args.profile, split=args.split, backend=args.embedding_backend, model=args.model,
                  rerank=args.rerank, offline=not args.allow_download, top_k=args.top_k,
-                 candidate_k=args.candidate_k, require_cuda=args.require_cuda)
+                 candidate_k=args.candidate_k, require_cuda=args.require_cuda, fixed_output_k=args.fixed_output_k)
     print(f"{report['purpose']}: {args.out / 'report.md'}; failed_queries={report['summary']['failed_queries']}")
     if report["summary"]["failed_queries"]:
         raise SystemExit(1)

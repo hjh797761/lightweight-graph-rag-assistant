@@ -27,14 +27,16 @@ python -B scripts/external_comparison.py --dataset examples/comparison_smoke.jso
 
 - LlamaIndex 调用真实 VectorStoreIndex，共享分块与 embedding，没有生成模型。这是特定向量检索配置，不代表该框架全部方案。
 - 输出预算按 chunk 计算，再按首次出现顺序得到文档排名。Recall/MRR/nDCG 对该排名计算，短排名不补齐，报告同时显示返回 chunk 数。
-- project full 保持动态选择，可能不足十个 chunk；各配置分别报告。
+- project full 默认保持动态选择，可能不足十个 chunk；各配置分别报告。实验参数 `--fixed-output-k` 只覆盖最终返回数量，不改变 top-k 候选/桥接预算。
 - 图与关键词可能产生额外候选；无 reranker 时不声称总候选数相同。启用 reranker 后按统一上限截断重排候选。
 - warm-up 单独计时。逐题耗时包含编码、检索和可选重排；全部请求与成功请求的 P50/P95 分别记录。串行吞吐不是并发服务吞吐。
-- 共享编码与各系统建库开销分列。project 包含概念图与主题，LlamaIndex 包含持久化；这是配置成本，不是纯向量算法比较。
+- 共享编码与各系统建库开销分列。project 按 profile 构建所需组件：仅图配置构建概念图，仅主题配置构建主题；LlamaIndex 包含持久化。旧版 project 对所有 profile 都建图和主题，新旧建库耗时需结合配置解释。
 - GPU 指标是 PyTorch allocator 峰值，不是整卡显存。排队时间不计入查询性能。
 - 查询失败保留错误并以零分计入质量均值，命令非零退出。建库或输入失败不生成成功报告。
 
 ## 展示
+
+单卡固定返回预算与组件对照见[检索效率与选择策略检查](retrieval_efficiency.md)。该实验复用开发题，不增加独立样本量；各阶段耗时只是定位开销的诊断，不能直接当作 GPU 核函数耗时。
 
 内部结果默认放 `.tmp/`。没有优势可以不发宣传文章；发布优势时附同轮完整指标、失败数与条件。更快但 Recall 降低需要同时展示。不要根据结果删题，或把模型升级归因于图检索。
 

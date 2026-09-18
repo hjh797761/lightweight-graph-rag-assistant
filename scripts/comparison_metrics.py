@@ -116,5 +116,6 @@ def report_markdown(report: dict) -> str:
         lines.append(f"| {key} | {value if value is not None else 'unavailable'} |")
     lines += ["", "Context token counts use the embedding tokenizer without truncation; they are not generator tokens or API cost.",
               "Index-build timings include adapter setup and persistence, not just the indexing algorithm.",
+              "Project stage durations are wall-clock diagnostics; per-stage medians do not sum to the median total, and are not LlamaIndex stage comparisons.",
               "Full configuration, source IDs, per-query rankings, scores and errors: `report.json`.", ""]
     return "\n".join(lines)

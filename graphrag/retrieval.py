@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 import re
+import time
 
 import numpy as np
 
@@ -46,11 +47,13 @@ def _terms(text: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys([*ascii_terms, *ngrams, *extract_concepts(text)]))
 
 
-def _keyword_score(query_terms: tuple[str, ...], text: str) -> float:
+def _keyword_score(query_terms: tuple[str, ...], text: str, *, normalized_terms=None) -> float:
     if not query_terms:
         return 0.0
     normalized = normalize_evidence(text)
-    hits = sum(1 for term in query_terms if normalize_evidence(term) in normalized)
+    if normalized_terms is None:
+        normalized_terms = tuple(normalize_evidence(term) for term in query_terms)
+    hits = sum(1 for term in normalized_terms if term in normalized)
     return hits / len(query_terms)
 
 
@@ -97,26 +100,51 @@ class Retriever:
         doc_scope: str | None = None,
         profile: str = "full",
         top_k: int | None = None,
+        fixed_output_k: int | None = None,
+        stage_times: dict[str, float] | None = None,
     ) -> RetrievalResult:
         if profile not in PROFILES:
             raise ValueError(f"未知检索配置: {profile}")
         settings = PROFILES[profile]
         budget = int(top_k or self.final_top_k)
+        if fixed_output_k is not None and (type(fixed_output_k) is not int or not 0 < fixed_output_k <= budget):
+            raise ValueError("fixed_output_k must be a positive integer within top_k")
+        if stage_times is not None:
+            stage_times.clear()
+        stage_started = time.perf_counter() if stage_times is not None else 0.0
+
+        def checkpoint(name):
+            nonlocal stage_started
+            if stage_times is not None:
+                now = time.perf_counter()
+                stage_times[name] = now - stage_started
+                stage_started = now
+
         resolved_scope = self._resolve_scope(doc_scope)
-        chunks = self.store.list_chunks(resolved_scope)
-        chunk_by_id = {chunk.id: chunk for chunk in chunks}
         ids, matrix = self.store.vector_matrix(resolved_scope)
+        checkpoint("vector_data")
         query_vector = self.embedder.encode_one(query)
+        checkpoint("query_embedding")
         scores: dict[str, float] = defaultdict(float)
         for chunk_id, score in vector_recall(
             query_vector, ids, matrix, self.vector_recall_k
         ):
             scores[chunk_id] = 0.70 * score
+        checkpoint("vector_recall")
 
-        query_terms = _terms(query)
+        needs_corpus = any((settings.use_keyword, settings.use_graph, settings.use_topic,
+                            settings.use_exact_guard, settings.use_bridges))
+        chunks = self.store.list_chunks(resolved_scope, chunk_ids=None if needs_corpus else list(scores))
+        chunk_by_id = {chunk.id: chunk for chunk in chunks}
+        checkpoint("chunk_data")
+
+        query_terms = _terms(query) if settings.use_keyword or settings.use_graph else ()
+        checkpoint("query_terms")
         if settings.use_keyword:
+            normalized_terms = tuple(normalize_evidence(term) for term in query_terms)
             for chunk in chunks:
-                scores[chunk.id] += 0.20 * _keyword_score(query_terms, chunk.clean_text)
+                scores[chunk.id] += 0.20 * _keyword_score(query_terms, chunk.clean_text, normalized_terms=normalized_terms)
+        checkpoint("keyword")
 
         if settings.use_graph:
             graph = self.store.load_graph()
@@ -134,6 +162,7 @@ class Retriever:
                 )
                 if hits:
                     scores[chunk.id] += min(0.20, hits * 0.07)
+        checkpoint("graph")
 
         if settings.use_topic:
             for topic in self.store.list_topics(resolved_scope):
@@ -144,13 +173,16 @@ class Retriever:
                 for chunk_id in topic["chunk_ids"]:
                     if chunk_id in chunk_by_id:
                         scores[chunk_id] += max(0.0, topic_score) * 0.08
+        checkpoint("topic")
 
         if settings.use_exact_guard:
             exact_tokens = re.findall(r"\d+(?:\.\d+)?%?", normalize_evidence(query))
-            for chunk in chunks:
-                normalized = normalize_evidence(chunk.clean_text)
-                if exact_tokens and all(token in normalized for token in exact_tokens):
-                    scores[chunk.id] += 0.18
+            if exact_tokens:
+                for chunk in chunks:
+                    normalized = normalize_evidence(chunk.clean_text)
+                    if all(token in normalized for token in exact_tokens):
+                        scores[chunk.id] += 0.18
+        checkpoint("exact_guard")
 
         if settings.use_bridges and scores:
             selected_ids = set(
@@ -163,15 +195,20 @@ class Retriever:
                     neighbor = by_position.get((chunk.doc_id, chunk.sequence + offset))
                     if neighbor:
                         scores[neighbor.id] = max(scores[neighbor.id], scores[chunk_id] * 0.82)
+        checkpoint("bridges")
 
         ranked = sorted(scores.items(), key=lambda item: (-item[1], item[0]))
+        checkpoint("candidate_sort")
         if self.reranker and ranked:
             candidate_chunks = [chunk_by_id[chunk_id] for chunk_id, _ in ranked]
             reranked = self.reranker(query, candidate_chunks)
             ranked = [(chunk.id, float(score)) for chunk, score in reranked]
-        ranked = ranked[: _selection_limit(query, budget, settings.dynamic_top_k)]
+        checkpoint("rerank")
+        limit = fixed_output_k if fixed_output_k is not None else _selection_limit(query, budget, settings.dynamic_top_k)
+        ranked = ranked[:limit]
         selected = [chunk_by_id[chunk_id] for chunk_id, _ in ranked]
         context = self._build_context(selected)
+        checkpoint("selection_context")
         return RetrievalResult(
             path=f"{profile}召回-top-{len(scores)} -> 选出-top-{len(selected)}",
             chunks=selected,
