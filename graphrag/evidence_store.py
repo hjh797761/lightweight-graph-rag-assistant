@@ -147,6 +147,26 @@ class EvidenceStore:
         connection.row_factory = sqlite3.Row
         return connection
 
+    def check_embedding_configuration(self, backend, model, *, record=False):
+        """Prevent resuming or querying with another same-dimensional model.
+
+        Reads never add metadata. Only ingestion can record the configuration,
+        and only before the first vector has been stored.
+        """
+        expected = json.dumps(dict(backend=backend, model=model), sort_keys=True)
+        connect = self._connect if record else lambda: _readonly(self.path)
+        with connect() as connection:
+            if record:
+                connection.execute('BEGIN IMMEDIATE')
+            row = connection.execute("SELECT value FROM metadata WHERE key='embedding_configuration'").fetchone()
+            if row is not None:
+                if row[0] != expected:
+                    raise ValueError('Index embedding configuration differs; use the original backend/model or rebuild into a new file')
+            elif connection.execute('SELECT 1 FROM chunks LIMIT 1').fetchone():
+                raise ValueError('Index embedding configuration is unknown; rebuild from source into a new file')
+            elif record:
+                connection.execute("INSERT INTO metadata(key,value) VALUES('embedding_configuration',?)", (expected,))
+
     @staticmethod
     def _validate_records(doc_id, records):
         if any(not isinstance(c, EvidenceChunk) or c.doc_id != doc_id for c in records):

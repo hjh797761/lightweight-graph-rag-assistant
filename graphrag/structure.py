@@ -11,6 +11,7 @@ from bisect import bisect_right
 from collections import defaultdict
 from pathlib import Path
 import re
+import warnings
 
 from .errors import DocumentParseError
 from .models import EvidenceChunk, EvidenceLink, SourceBlock
@@ -194,10 +195,15 @@ def parse_file(path: str | Path, doc_id: str, chunk_size: int = 800) -> list[Evi
             locator = lambda a, b: f"paragraphs {bisect_right(starts, a)}-{bisect_right(starts, max(a, b - 1))}"
             return _chunks(text, doc_id, _blocks(text, doc_id, headings), chunk_size, locator)
         if suffix == ".pdf":
-            import pymupdf
-
-            with pymupdf.open(path) as document:
-                pages = [page.get_text() for page in document]
+            # Keep the evidence path free of the native MuPDF/torch shutdown
+            # interaction reproduced in this Windows CPU environment. PyPDF2
+            # is already a required dependency; it needs no newer MuPDF import.
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message=r"PyPDF2 is deprecated\. Please move to the pypdf library instead\.",
+                                        category=DeprecationWarning, module=r"PyPDF2")
+                from PyPDF2 import PdfReader
+            with path.open("rb") as stream:
+                pages = [page.extract_text() or "" for page in PdfReader(stream).pages]
             text = "\n".join(pages)
             blocks, starts = [], []
             offset = 0

@@ -1,10 +1,32 @@
 """Structure evidence must be recoverable from source positions, never guessed."""
 
 import importlib
-import warnings
 from zipfile import ZipFile
 
 import pytest
+
+
+def write_pdf_fixture(path, pages):
+    """A real PDF with text streams and xref; no native library needed to create it."""
+    objects = [b"<< /Type /Catalog /Pages 2 0 R >>",
+        ("<< /Type /Pages /Count %d /Kids [%s] >>" % (len(pages), " ".join(f"{4 + 2*i} 0 R" for i in range(len(pages))))).encode(),
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
+    for index, text in enumerate(pages):
+        escaped = [line.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)") for line in text.splitlines()]
+        stream = ("BT /F1 12 Tf 72 720 Td 14 TL " + " T* ".join(f"({line}) Tj" for line in escaped) + " ET").encode("ascii")
+        objects.append(("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents %d 0 R >>" % (5 + 2*index)).encode())
+        objects.append(b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream")
+    data = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for index, obj in enumerate(objects, 1):
+        offsets.append(len(data))
+        data.extend(f"{index} 0 obj\n".encode() + obj + b"\nendobj\n")
+    xref = len(data)
+    data.extend(f"xref\n0 {len(offsets)}\n0000000000 65535 f \n".encode())
+    for offset in offsets[1:]:
+        data.extend(f"{offset:010d} 00000 n \n".encode())
+    data.extend(f"trailer\n<< /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode())
+    path.write_bytes(data)
 
 
 def structure():
@@ -169,21 +191,15 @@ def test_real_docx_uses_heading_styles_and_paragraph_locations(tmp_path):
 
 def test_real_pdf_uses_pages_without_inventing_sections(tmp_path):
     parser = structure()
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message="builtin type .* has no __module__ attribute", category=DeprecationWarning)
-        import pymupdf
-
     path = tmp_path / "source.pdf"
-    with pymupdf.open() as document:
-        document.new_page().insert_text((72, 72), "# Looks like a heading\nFirst page.\nSee section")
-        document.new_page().insert_text((72, 72), "2. Second page.")
-        document.save(path)
+    write_pdf_fixture(path, ["# Looks like a heading\nFirst page.\nSee section", "2. Second page."])
     chunks = parser.parse_file(path, "doc")
     assert [c.locator for c in chunks] == ["page 1", "page 2"]
     assert all(c.section_id is None for c in chunks)
     assert parser.build_links(chunks) == []
-    with pymupdf.open(path) as document:
-        source = "\n".join(page.get_text() for page in document)
+    from PyPDF2 import PdfReader
+    with path.open("rb") as stream:
+        source = "\n".join(page.extract_text() or "" for page in PdfReader(stream).pages)
     assert all(c.source_text == source[c.source_start:c.source_end] for c in chunks)
 
 
