@@ -65,6 +65,16 @@ python -B scripts/evidence_eval.py --dataset examples/evidence_smoke.json --out 
 
 本次功能检查与旧 400 文档/30 dev 结果分开：现有旧报告不变，新证据路径没有质量优势结论。新增测试使用真实 SQLite 和应用服务比对最终 chunk、角色、context、预算与候选信息；这验证功能一致性而非任务成功率。外部系统比较仍见[legacy 外部对比](external_comparison.md)。
 
+## 已观察到的本地验证（2026-09-18）
+
+在功能代码 `586c25f` 上，Windows / Python 3.12.10 的完整测试以 `-B -W error -p no:cacheprovider` 运行，246 项通过，退出码 0；另对 53 个 Python 文件完成语法解析。测试数量是本次记录，不是质量阈值。
+
+使用已有本地 BGE-small-zh-v1.5 和 BGE-reranker-base 快照、明确的离线设置和 CPU，实际运行了显式建库与新版评估 CLI。原创 smoke 数据的两道 dev 问题均无运行错误：有引用标签的问题返回一条核心和一条引用补充，渲染上下文 401 字符；另一道无标签问题返回两条核心，321 字符。两题上限均为 1800 字符、K=2、S=1、补充比例 0.45。无标签问题未被赋予质量得分，模型运行仍标为 smoke。
+
+本轮另用中文人工材料核对了关闭和开启重排的检索、补充分数为空、显式引用理由、374 字符上下文及旧三元组结果一致；实际 PDF 解析后同进程加载本地模型亦正常退出。新 PDF 路径使用已有的纯 Python 解析依赖，避免了本机曾复现的原生 PDF/模型组合测试退出崩溃。真实模型日志仍出现第三方 `cache_dir` 弃用提示，未屏蔽；模型运行退出码为 0。
+
+这些只是离线集成和实现一致性证据，不是独立检索效果实验、并发性能测试、回答质量评估或新版 GPU 验证，也不支持优于 LlamaIndex 等系统的结论。旧集群任务和历史结果没有因此重跑。
+
 ## 设计来源
 
 沿用[已审阅设计的来源说明](superpowers/specs/2026-09-18-evidence-assistant-design.md)：排名融合参考 [Cormack 等的 RRF](https://cormack.uwaterloo.ca/cormacksigir09-rrf.pdf)，混合融合的局限参考 [An Analysis of Fusion Functions for Hybrid Retrieval](https://arxiv.org/abs/2210.11934)，词法索引接口参考 [SQLite FTS5](https://www.sqlite.org/fts5.html)。小片段检索与结构语境恢复的职责分离参考 [LlamaIndex AutoMergingRetriever](https://github.com/run-llama/llama_index/blob/main/llama-index-core/llama_index/core/retrievers/auto_merging_retriever.py)。本项目的一跳引用、配额和预算规则不是其原实现，参考这些设计不构成算法原创性或质量优势证明；没有直接复制第三方实现。
