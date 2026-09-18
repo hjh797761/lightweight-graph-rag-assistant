@@ -19,7 +19,7 @@ from .models import EvidenceChunk, EvidenceLink, SourceBlock
 _NUMBER = r"[0-9一二三四五六七八九十百零〇两]+"
 _REFERENCE = re.compile(
     rf"第\s*(?P<zh>{_NUMBER})\s*(?P<unit>[章节条])"
-    r"|\b(?P<en>chapter|section|clause)\s*(?P<number>\d+(?:\.\d+)*)\b",
+    r"|\b(?P<en>chapter|section|clause)\s*(?P<number>\d+(?:\.\d+)*)(?!\w|\.[\w.])",
     re.IGNORECASE,
 )
 _ATX = re.compile(r"^ {0,3}(#{1,6})(?:[ \t]+(.*?)|[ \t]*)$")
@@ -139,6 +139,7 @@ def _chunks(text, doc_id, blocks, chunk_size, locator):
         raise ValueError("chunk_size must be positive")
     result = []
     for block in blocks:
+        previous_end = None
         for start, end, partial in _spans(text, block.start, block.end, chunk_size):
             raw = text[start:end]
             result.append(EvidenceChunk(
@@ -148,7 +149,9 @@ def _chunks(text, doc_id, blocks, chunk_size, locator):
                 section_id=block.section_id, title_path=block.title_path,
                 locator=locator(start, end), source_start=start, source_end=end,
                 partial=partial, source_text=raw, heading_end=block.heading_end,
+                source_gap_before=text[previous_end:start] if previous_end is not None else "",
             ))
+            previous_end = end
     return result
 
 
@@ -216,15 +219,18 @@ def _label(match):
 
 
 def _reference_spans(members):
-    """Join only exact contiguous source slices to recover forced-cut references."""
+    """Recover references from exact slices and parser-recorded original gaps."""
     runs = []
     for chunk in members:
-        if runs and runs[-1][-1].source_end == chunk.source_start and runs[-1][-1].section_id == chunk.section_id:
+        if (runs and runs[-1][-1].doc_id == chunk.doc_id
+                and runs[-1][-1].source_end + len(chunk.source_gap_before) == chunk.source_start
+                and runs[-1][-1].section_id == chunk.section_id):
             runs[-1].append(chunk)
         else:
             runs.append([chunk])
     for run in runs:
-        source = "".join(chunk.source_text for chunk in run)
+        source = "".join((chunk.source_gap_before if index else "") + chunk.source_text
+                         for index, chunk in enumerate(run))
         starts = [chunk.source_start for chunk in run]
         for match in _REFERENCE.finditer(source):
             start = starts[0] + match.start()

@@ -72,6 +72,33 @@ def test_forced_heading_cuts_never_turn_declarations_into_references(heading):
         assert refs == []
 
 
+def test_unsupported_english_identifier_suffix_never_resolves_a_prefix():
+    parser = structure()
+    text = "# Section 2\nRule.\n# Section 2.1a\nOther rule.\n# Notes\nSee section2.1a."
+    chunks = parser.parse_text(text, "doc")
+    refs = [link for link in parser.build_links(chunks) if link.kind == "explicit_reference"]
+    assert refs == []
+    text = "# Section 2.1a\nOther rule.\n# Notes\nSee section2."
+    chunks = parser.parse_text(text, "doc")
+    refs = [link for link in parser.build_links(chunks) if link.kind == "explicit_reference"]
+    assert len(refs) == 1 and refs[0].status == "missing"
+
+
+@pytest.mark.parametrize("gap", ["\n", "\r\n", " \n\t "])
+def test_reference_retains_exact_whitespace_across_chunk_boundaries(gap):
+    parser = structure()
+    text = "# Section 2 Rules\nActual section.\n# Notes\nSee section" + gap + "2 for the exception."
+    for size in (20, 800):
+        chunks = parser.parse_text(text, "doc", chunk_size=size)
+        for previous, chunk in zip(chunks, chunks[1:]):
+            if previous.section_id == chunk.section_id:
+                assert chunk.source_gap_before == text[previous.source_end:chunk.source_start]
+        refs = [link for link in parser.build_links(chunks) if link.kind == "explicit_reference"]
+        assert len(refs) == 1 and refs[0].status == "resolved"
+        assert refs[0].basis == "section" + gap + "2"
+        assert text[refs[0].source_start:refs[0].source_end] == refs[0].basis
+
+
 def test_numbered_txt_sections_resolve_forward_and_missing_references():
     parser = structure()
     text = "第一条 范围\n参见第三条及第九条。\n第三条 实施\n具体办法。"
@@ -148,12 +175,13 @@ def test_real_pdf_uses_pages_without_inventing_sections(tmp_path):
 
     path = tmp_path / "source.pdf"
     with pymupdf.open() as document:
-        document.new_page().insert_text((72, 72), "# Looks like a heading\nFirst page.")
-        document.new_page().insert_text((72, 72), "Second page.")
+        document.new_page().insert_text((72, 72), "# Looks like a heading\nFirst page.\nSee section")
+        document.new_page().insert_text((72, 72), "2. Second page.")
         document.save(path)
     chunks = parser.parse_file(path, "doc")
     assert [c.locator for c in chunks] == ["page 1", "page 2"]
     assert all(c.section_id is None for c in chunks)
+    assert parser.build_links(chunks) == []
     with pymupdf.open(path) as document:
         source = "\n".join(page.get_text() for page in document)
     assert all(c.source_text == source[c.source_start:c.source_end] for c in chunks)

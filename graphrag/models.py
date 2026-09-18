@@ -35,6 +35,8 @@ class EvidenceChunk(ChunkRecord):
     partial: bool = False
     source_text: str = ""
     heading_end: int | None = None
+    # Original omitted whitespace since the preceding chunk in the same source block.
+    source_gap_before: str = ""
 
 
 @dataclass(frozen=True)
