@@ -64,7 +64,11 @@ def _prepare(data):
         if query.get("split") not in positives:
             raise ValueError("query split must be dev or test")
         if query.get("doc_scope") is not None:
-            _text(query["doc_scope"], "doc_scope")
+            scope = _text(query["doc_scope"], "doc_scope")
+            # Inline names equal IDs; exact IDs take precedence over paths,
+            # matching EvidenceRetriever._resolve_scope without using labels.
+            if scope not in doc_ids and not any(scope == f"inline:{id}" for id in doc_ids):
+                raise ValueError(f"Unknown document scope: {scope!r}")
         if "relevant_documents" in query:
             labels = query["relevant_documents"]
             if not isinstance(labels, dict):

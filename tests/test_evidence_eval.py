@@ -81,6 +81,7 @@ def test_same_service_selection_reports_and_exclusive_output(tmp_path):
     lambda d: d["queries"][0].update(reference_target_ids=["a::chunk_000001"] * 2),
     lambda d: d["queries"][0].update(reference_targets_exhaustive="true"),
     lambda d: d["queries"][0].pop("reference_target_ids"),
+    lambda d: d["queries"][0].update(doc_scope="unknown-document"),
 ])
 def test_invalid_input_precedes_output_and_model_load(tmp_path, mutation):
     data = dataset()
@@ -184,3 +185,13 @@ def test_cli_duplicate_relevance_ids_fail_before_output(tmp_path):
     with pytest.raises(ValueError, match="duplicate"):
         module().main(["--dataset", str(path), "--out", str(tmp_path / "out")])
     assert not (tmp_path / "out").exists()
+
+
+def test_inline_path_scope_and_exact_id_precedence(tmp_path):
+    data = dataset()
+    data["queries"] = [{"id": "path", "question": "Alpha", "split": "dev", "doc_scope": "inline:a"}]
+    report = module().run(data, tmp_path / "path", embedding_backend="deterministic")
+    assert report["queries"][0]["document_ids"] and set(report["queries"][0]["document_ids"]) == {"a"}
+    data["documents"].append({"id": "inline:a", "text": "# Section 1\nAnother exact ID source."})
+    report = module().run(data, tmp_path / "id", embedding_backend="deterministic")
+    assert report["queries"][0]["document_ids"] == ["inline:a"]

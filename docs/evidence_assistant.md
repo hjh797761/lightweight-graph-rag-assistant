@@ -38,7 +38,7 @@ TXT/Markdown 区间指向解码后的原文字符；DOCX 指向以换行连接�
 
 `format` 缺省为 markdown，也支持 txt（md/text 为对应别名）。ID 和正文必须非空；文档及问题 ID 各自唯一。来源相关性是 0–4 的整数映射；重复 JSON 键、未知来源、未知 chunk、重复引用标签、非布尔 exhaustive 都拒绝。所有文档完整解析并验证手工目标 ID 后才创建输出目录或加载模型。标签 ID 如 `manual::chunk_000001` 由解析顺序稳定生成，但修改来源可能改变它，标注者须核对对应原文。
 
-`doc_scope` 可缺省，缺省检索全库；内联文档名称等于 ID，路径记作 `inline:ID`。所有文档都建库，`--split dev|test` 只筛选问题。同一已标注正相关来源 ID 不得跨 dev/test；这不是近重复文本保证。旧 comparison validator 仍要求标签，新入口独立允许缺省标签，不改变旧协议。
+`doc_scope` 可缺省，缺省检索全库；内联文档名称等于 ID，路径记作 `inline:ID`。精确 ID 优先于路径匹配；内联资料中未知范围在建库和模型加载前作为输入错误拒绝，不根据相关性标签补选范围。所有文档都建库，`--split dev|test` 只筛选问题。同一已标注正相关来源 ID 不得跨 dev/test；这不是近重复文本保证。旧 comparison validator 仍要求标签，新入口独立允许缺省标签，不改变旧协议。
 
 `relevant_documents` 和 `reference_target_ids` 都可省略；引用目标是外部/人工预期片段，不从自动 `build_links` 派生。`reference_targets_exhaustive` 默认 false；true 必须显式提供目标列表，允许空列表表达“应当没有引用目标”。没有正标签时 coverage 不可用，不把空列表当 100% 覆盖。
 
