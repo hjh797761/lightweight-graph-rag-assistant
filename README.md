@@ -123,7 +123,17 @@ python scripts/retrieval_eval.py --embedding-backend deterministic --out-json .t
 python scripts/retrieval_eval.py --embedding-backend model --out-json .tmp/eval-model.json --out-md .tmp/eval-model.md
 ```
 
-报告同时运行 `vector`、`vector_keyword`、`vector_graph`、`vector_topic_graph` 和 `full`。各 profile 使用同一个问题限定文档和 `top_k`，输出关键证据覆盖、倒数排名、命中片段、分数和检索耗时。指标只用于报告，不设自动质量阈值。
+报告逐一运行以下五种检索配置（profile）：
+
+- vector
+- vector_keyword
+- vector_graph
+- vector_topic_graph
+- full
+
+对于每个问题，五种配置使用相同的限定文档范围和 top_k 参数。实际返回的片段数量可能不同，full 配置会进行动态选择。报告记录关键证据覆盖、倒数排名、命中片段、分数和检索耗时，不设置自动质量阈值。
+
+注意：这里是限定文档的功能测试，不是全库检索质量评测；该脚本也不加载 cross-encoder 重排模型。全库检索对比见[外部对比说明](docs/external_comparison.md)，公共数据小规模试运行见[CRUD-RAG 检索试运行说明](docs/crud_pilot.md)。
 
 非门禁 CPU 基准：
 
