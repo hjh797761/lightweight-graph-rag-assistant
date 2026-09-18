@@ -105,10 +105,16 @@ def report_markdown(report: dict) -> str:
              "", "Document ranks are first occurrences in the returned chunk list. Short rankings are not padded.",
              "All queries, including failures scored as zero, enter quality metrics.", "", "## Settings", "",
              "| Setting | Value |", "|---|---|"]
+    metadata = report.get("dataset_metadata", {})
+    if metadata.get("relevance_kind") == "source_document_proxy":
+        lines[3:3] = ["", "Source-document proxy, not exhaustive relevance judgments or official CRUD-RAG scores.",
+                      str(metadata.get("limitation", "")), ""]
     for key, value in report["settings"].items():
         lines.append(f"| {key} | {str(value).replace('|', '/').replace(chr(10), ' ')} |")
     lines += ["", "## All metrics", "", "| Metric | Value |", "|---|---:|"]
     for key, value in report["summary"].items():
         lines.append(f"| {key} | {value if value is not None else 'unavailable'} |")
-    lines += ["", "Full configuration, source IDs, per-query rankings, scores and errors: `report.json`.", ""]
+    lines += ["", "Context token counts use the embedding tokenizer without truncation; they are not generator tokens or API cost.",
+              "Index-build timings include adapter setup and persistence, not just the indexing algorithm.",
+              "Full configuration, source IDs, per-query rankings, scores and errors: `report.json`.", ""]
     return "\n".join(lines)

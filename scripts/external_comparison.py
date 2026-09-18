@@ -71,7 +71,7 @@ def _project_retriever(chunks, embedder, output, profile, candidate_k, top_k, re
 
 def run(data, output: Path, *, system="project", backend="deterministic", profile="vector",
         split="test", model="BAAI/bge-small-zh-v1.5", rerank=False, offline=True,
-        top_k=10, candidate_k=40):
+        top_k=10, candidate_k=40, require_cuda=False):
     validate_dataset(data)
     if system not in {"project", "llamaindex"} or profile not in PROFILES or split not in {"dev", "test"}:
         raise ValueError("unknown system, profile or split")
@@ -81,6 +81,8 @@ def run(data, output: Path, *, system="project", backend="deterministic", profil
         raise ValueError("unknown embedding backend")
     if backend == "deterministic" and rerank:
         raise ValueError("deterministic smoke does not load a model reranker")
+    if require_cuda and backend != "model":
+        raise ValueError("CUDA requires a real model backend")
     if not 0 < top_k <= candidate_k:
         raise ValueError("positive top_k must be no larger than candidate_k")
     queries = [q for q in data["queries"] if q["split"] == split]
@@ -96,6 +98,7 @@ def run(data, output: Path, *, system="project", backend="deterministic", profil
               "dynamic_selection": system == "project" and profile == "full",
               "device": None}
     (output / "run_config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
+    print("MODEL_LOAD_BEGIN", flush=True)
     started = time.perf_counter()
     embedder = DeterministicEmbeddingBackend() if backend == "deterministic" else EmbeddingBackend.load(model, offline)
     sync = lambda: None
@@ -110,8 +113,14 @@ def run(data, output: Path, *, system="project", backend="deterministic", profil
         config["device"] = "cpu"
     if backend == "model":
         config["embedding_max_sequence_length"] = embedder.model.max_seq_length
+    if require_cuda and gpu is None:
+        raise RuntimeError("CUDA required but embedding model is not on CUDA")
     (output / "run_config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
     raw_reranker = CrossEncoderReranker.load("BAAI/bge-reranker-base", offline) if rerank else None
+    config["reranker_device"] = str(raw_reranker.model.device) if raw_reranker else None
+    if require_cuda and raw_reranker and not config["reranker_device"].startswith("cuda"):
+        raise RuntimeError("CUDA required but reranker is not on CUDA")
+    (output / "run_config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
     rerank_counts = []
 
     def bounded_reranker(query, chunks):
@@ -124,10 +133,12 @@ def run(data, output: Path, *, system="project", backend="deterministic", profil
     load_seconds = time.perf_counter() - started
     if gpu:
         gpu.reset_peak_memory_stats()
+    print("CORPUS_EMBEDDING_BEGIN", flush=True)
     started = time.perf_counter()
     chunks = _chunks(data, embedder)
     sync()
     encode_seconds = time.perf_counter() - started
+    print(f"INDEX_BUILD_BEGIN chunks={len(chunks)}", flush=True)
     started = time.perf_counter()
     if system == "project":
         retrieve = _project_retriever(chunks, embedder, output, profile, candidate_k, top_k, reranker)
@@ -142,6 +153,8 @@ def run(data, output: Path, *, system="project", backend="deterministic", profil
     retrieve("初始化检索缓存")
     sync()
     warmup_seconds = time.perf_counter() - started
+    print(f"QUERIES_BEGIN count={len(queries)}", flush=True)
+    tokenizer = embedder.model.tokenizer if backend == "model" else None
     rows = []
     with (output / "per_query.jsonl").open("x", encoding="utf-8") as stream:
         for query in queries:
@@ -155,24 +168,36 @@ def run(data, output: Path, *, system="project", backend="deterministic", profil
             except Exception as exc:
                 error = f"{type(exc).__name__}: {exc}"
             seconds = time.perf_counter() - started
+            context_text = "\n\n".join(c.clean_text for c, _ in found)
+            context_tokens = len(tokenizer.encode(context_text, add_special_tokens=False,
+                                                  truncation=False, verbose=False)) if tokenizer else None
             row = {"query_id": query["id"], "document_ids": list(dict.fromkeys(c.doc_id for c, _ in found)),
                    "chunks": [{"id": c.id, "document_id": c.doc_id, "score": float(score)} for c, score in found],
                    "returned_chunks": len(found), "reranked_candidates": rerank_counts[-1] if rerank_counts else None,
-                   "seconds": seconds, "error": error}
+                   "seconds": seconds, "error": error,
+                   "returned_context_characters": len(context_text),
+                   "returned_context_embedding_tokens": context_tokens}
             rows.append(row)
             stream.write(json.dumps(row, ensure_ascii=False, allow_nan=False) + "\n")
             stream.flush()
+            print(f"QUERY_DONE {len(rows)}/{len(queries)} error={error}", flush=True)
     summary = summarize(queries, rows)
+    metadata = data.get("metadata", {})
+    if metadata.get("relevance_kind") == "source_document_proxy":
+        summary = {(f"source_{key}" if key.startswith(("recall@", "mrr@", "ndcg@")) else key): value
+                   for key, value in summary.items()}
     summary.update({"model_load_seconds": load_seconds, "shared_chunk_embedding_seconds": encode_seconds,
                     "index_build_seconds_excluding_embedding": build_seconds,
                     "index_build_seconds_including_embedding": encode_seconds + build_seconds,
                     "warmup_seconds": warmup_seconds, "index_bytes": index_bytes,
                     "mean_returned_chunks": sum(row["returned_chunks"] for row in rows) / len(rows),
+                    "mean_returned_context_characters": sum(r["returned_context_characters"] for r in rows) / len(rows),
+                    "mean_returned_context_embedding_tokens": sum(r["returned_context_embedding_tokens"] for r in rows) / len(rows) if tokenizer else None,
                     "peak_torch_allocated_gpu_bytes": gpu.max_memory_allocated() if gpu else None})
     report = {"dataset": data["name"], "purpose": "smoke" if backend == "deterministic" else data["purpose"],
               "created_utc": datetime.now(timezone.utc).isoformat(), "settings": config,
               "environment": _versions(), "corpus_document_ids": [doc["id"] for doc in data["documents"]],
-              "queries": queries, "summary": summary, "rows": rows}
+              "dataset_metadata": metadata, "queries": queries, "summary": summary, "rows": rows}
     (output / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
     (output / "report.md").write_text(report_markdown(report), encoding="utf-8")
     return report
@@ -188,13 +213,15 @@ def main():
     parser.add_argument("--embedding-backend", choices=("deterministic", "model"), default="deterministic")
     parser.add_argument("--model", default="BAAI/bge-small-zh-v1.5")
     parser.add_argument("--rerank", action="store_true")
+    parser.add_argument("--require-cuda", action="store_true", help="fail instead of silently running on CPU")
     parser.add_argument("--allow-download", action="store_true", help="default only loads local model cache")
     parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument("--candidate-k", type=int, default=40)
     args = parser.parse_args()
     report = run(json.loads(args.dataset.read_text(encoding="utf-8")), args.out, system=args.system,
                  profile=args.profile, split=args.split, backend=args.embedding_backend, model=args.model,
-                 rerank=args.rerank, offline=not args.allow_download, top_k=args.top_k, candidate_k=args.candidate_k)
+                 rerank=args.rerank, offline=not args.allow_download, top_k=args.top_k,
+                 candidate_k=args.candidate_k, require_cuda=args.require_cuda)
     print(f"{report['purpose']}: {args.out / 'report.md'}; failed_queries={report['summary']['failed_queries']}")
     if report["summary"]["failed_queries"]:
         raise SystemExit(1)
