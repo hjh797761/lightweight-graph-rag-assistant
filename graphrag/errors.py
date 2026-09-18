@@ -18,5 +18,9 @@ class StorageError(GraphRAGError):
     pass
 
 
+class IndexCapabilityError(StorageError):
+    """The selected index or SQLite runtime lacks the requested capabilities."""
+
+
 class MigrationError(GraphRAGError):
     pass
